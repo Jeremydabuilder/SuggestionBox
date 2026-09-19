@@ -71,6 +71,16 @@
       0 10px 30px -18px rgba(16, 25, 53, 0.35);
   }
 
+  /* The sheet lifting off the page just before it folds. */
+  .paper {
+    transition: box-shadow 380ms ease;
+  }
+  .paper-lifted {
+    box-shadow:
+      0 2px 4px rgba(16, 25, 53, 0.06),
+      0 26px 42px -20px rgba(16, 25, 53, 0.42);
+  }
+
   .field {
     width: 100%;
     border: 1px solid var(--color-rule);

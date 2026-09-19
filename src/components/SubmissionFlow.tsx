@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "framer-motion";
-import SuggestionBoxArt from "./SuggestionBoxArt";
+import SuggestionBoxArt, { SLOT_BOX } from "./SuggestionBoxArt";
 import Turnstile from "./Turnstile";
 import { CATEGORIES, type Category } from "@/lib/types";
 import { LIMITS, MINIMUMS } from "@/lib/validation";
@@ -32,11 +32,45 @@ const EMPTY_FORM: FormState = {
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
-/** Height of the folded sheet, and of the stage once the form collapses. */
-const STAGE_HEIGHT = 184;
+/**
+ * The sheet the form becomes, before it is folded. Portrait, in letter
+ * proportions, so that folding it in thirds leaves a note shaped like a
+ * real folded note — tall enough to read as one standing in the slot.
+ */
+const SHEET_W = 200;
+const SHEET_H = 260;
 
-/** How small the folded note is by the time it reaches the slot. */
-const FLY_SCALE = 0.5;
+/** A letter folded in thirds keeps its width and loses two thirds of its height. */
+const FOLD_TWO_THIRDS = 0.665;
+const FOLD_ONE_THIRD = 0.338;
+
+/**
+ * What the stage closes down to once the note is folded. The fold collapses
+ * towards the top of the sheet, so the note ends up at the top of the stage
+ * and there is no dead space between it and the box.
+ */
+const FOLDED_STAGE_H = 96;
+
+/** How the note sits relative to the slot it has to fit through. */
+const SLOT_FILL = 0.82;
+/**
+ * How far the note leans back as it reaches the slot. A note being posted
+ * stands close to upright in the slot — it does not lie down on the lid —
+ * so this is a lean, not a flattening.
+ */
+const LID_TILT_DEG = 16;
+
+/**
+ * Timing curves. In a cubic bezier the x control points must not go
+ * backwards (x1 <= x2) — otherwise the curve is non-monotonic in time and
+ * the value sails past its target and returns, which on a flight path looks
+ * like the note overshooting the box.
+ */
+const TRAVEL_EASE = [0.32, 0.64, 0.36, 1] as const;
+const TURN_EASE = [0.4, 0.15, 0.6, 1] as const;
+
+/** Descent into the slot. y and the clip run on this exact curve, together. */
+const INSERT_EASE = [0.45, 0.05, 0.55, 1] as const;
 
 export default function SubmissionFlow() {
   const [scope, animate] = useAnimate<HTMLDivElement>();
@@ -117,92 +151,127 @@ export default function SubmissionFlow() {
     const root = scope.current;
     if (!root) return;
 
-    const paper = root.querySelector<HTMLElement>("[data-paper]");
-    const foldV = root.querySelector<HTMLElement>("[data-fold-v]");
-    const sheet = root.querySelector<HTMLElement>("[data-sheet]");
-    const slide = root.querySelector<HTMLElement>("[data-slide]");
-    const slot = root.querySelector<HTMLElement>("[data-slot]");
-    if (!paper || !foldV || !sheet || !slide || !slot) return;
+    const find = (selector: string) => root.querySelector<HTMLElement>(selector);
+    const paper = find("[data-paper]");
+    const tilt = find("[data-tilt]");
+    const sheet = find("[data-sheet]");
+    const slot = find("[data-slot]");
+    if (!paper || !tilt || !sheet || !slot) return;
 
     const area = paperAreaRef.current;
 
-    // Freeze the current size so width/height are animatable numbers.
+    // Freeze the current size so width/height become animatable numbers.
     paper.style.width = `${paper.offsetWidth}px`;
     sheet.style.height = `${sheet.offsetHeight}px`;
     if (area) area.style.height = `${paper.offsetHeight}px`;
 
-    // Make sure the box is actually on screen before anything flies at it.
-    root.scrollIntoView({ behavior: "smooth", block: "center" });
-    await new Promise((resolve) => setTimeout(resolve, 420));
-
-    // 1 — the form becomes a sheet of paper, and the stage closes up around
-    // it so the paper and the box share the screen.
-    await animate("[data-form-body]", { opacity: 0, y: -6 }, { duration: 0.24, ease: "easeIn" });
-    if (area) area.style.height = `${STAGE_HEIGHT}px`;
-    await Promise.all([
-      animate("[data-paper]", { width: 268 }, { duration: 0.5, ease: EASE_OUT }),
-      animate("[data-sheet]", { height: STAGE_HEIGHT }, { duration: 0.5, ease: EASE_OUT }),
-      animate("[data-paper-face]", { opacity: 1 }, { duration: 0.3, delay: 0.12 }),
-    ]);
+    // Bring the box into view first: the paper and the box have to share the
+    // screen for the part of this that matters.
     root.scrollIntoView({ behavior: "smooth", block: "center" });
 
-    // 2 — fold it: once across, once down the side.
+    // 1 — the form becomes a sheet of paper and lifts off the page. The
+    //     stage closes up at the same time so the box comes to meet it.
+    await animate("[data-form-body]", { opacity: 0, y: -6 }, { duration: 0.2, ease: "easeIn" });
+    if (area) area.style.height = `${FOLDED_STAGE_H}px`;
+    sheet.classList.add("paper-lifted");
     await Promise.all([
-      animate("[data-fold-v]", { scaleY: 0.52 }, { duration: 0.34, ease: EASE_OUT }),
-      animate("[data-crease-h]", { opacity: 1 }, { duration: 0.2 }),
+      animate("[data-paper]", { width: SHEET_W }, { duration: 0.36, ease: EASE_OUT }),
+      animate("[data-sheet]", { height: SHEET_H }, { duration: 0.36, ease: EASE_OUT }),
+      animate("[data-paper-face]", { opacity: 1 }, { duration: 0.24, delay: 0.08 }),
+      animate("[data-tilt]", { y: -14, scale: 1.04 }, { duration: 0.36, ease: EASE_OUT }),
     ]);
-    await Promise.all([
-      animate("[data-sheet]", { scaleX: 0.6 }, { duration: 0.3, ease: EASE_OUT }),
-      animate("[data-crease-v]", { opacity: 1 }, { duration: 0.18 }),
-    ]);
-    // Pin rotation to the folded sheet's own centre, not the wrapper's, so
-    // the paper lands exactly on the slot. Done before any transform is
-    // applied to [data-paper], so nothing jumps.
-    const sheetRect = sheet.getBoundingClientRect();
-    const paperRect = paper.getBoundingClientRect();
-    const sheetCenterX = sheetRect.left + sheetRect.width / 2;
-    const sheetCenterY = sheetRect.top + sheetRect.height / 2;
-    paper.style.transformOrigin = `${sheetCenterX - paperRect.left}px ${
-      sheetCenterY - paperRect.top
-    }px`;
 
-    // Shrink on the way so the note is narrower than the slot it goes into.
-    // Scaling about the pinned centre lifts the bottom edge, so add it back.
+    // 2 — fold it in thirds, the way you fold a letter.
+    await Promise.all([
+      animate("[data-fold]", { scaleY: FOLD_TWO_THIRDS }, { duration: 0.18, ease: EASE_OUT }),
+      animate("[data-crease-1]", { opacity: 1 }, { duration: 0.14 }),
+    ]);
+    await Promise.all([
+      animate("[data-fold]", { scaleY: FOLD_ONE_THIRD }, { duration: 0.2, ease: EASE_OUT }),
+      animate("[data-crease-2]", { opacity: 1 }, { duration: 0.14 }),
+    ]);
+
+    // Scale and rotateX act about the element's transform origin. The folded
+    // note sits in the TOP of a full-height sheet, so the default centre
+    // origin would drag it downwards as it shrinks. Pin the origin to the
+    // folded note's own centre instead: then its centre is the one point
+    // that does not move, and the landing position can be worked out up
+    // front. Set before any transform is applied, so nothing jumps.
+    tilt.style.transformOrigin = `50% ${(SHEET_H * FOLD_ONE_THIRD) / 2}px`;
+
+    // 3 — carry it to the box. The note shrinks to the slot's width and
+    //     tips into the plane of the lid ON THE WAY, so it reads as moving
+    //     away from you rather than jumping to a smaller size in place.
+    //
     const slotRect = slot.getBoundingClientRect();
-    const dx = slotRect.left + slotRect.width / 2 - sheetCenterX;
+    const foldedRect = sheet.getBoundingClientRect();
+    const scale = (slotRect.width * SLOT_FILL) / foldedRect.width;
+    const tiltedHeight =
+      foldedRect.height * scale * Math.cos((LID_TILT_DEG * Math.PI) / 180);
+
+    const dx = slotRect.left + slotRect.width / 2 - (foldedRect.left + foldedRect.width / 2);
     const dy =
-      slotRect.top + slotRect.height / 2 -
-      sheetRect.bottom +
-      6 +
-      ((1 - FLY_SCALE) * sheetRect.height) / 2;
+      slotRect.bottom - tiltedHeight / 2 - (foldedRect.top + foldedRect.height / 2);
 
-    await animate("[data-paper]", { rotate: -3 }, { duration: 0.18, ease: "easeOut" });
+    await Promise.all([
+      animate(
+        "[data-paper]",
+        { x: [0, dx * 0.62, dx], y: [0, dy * 0.3, dy] },
+        { duration: 0.52, ease: TRAVEL_EASE },
+      ),
+      animate(
+        "[data-tilt]",
+        { scale, rotateX: LID_TILT_DEG, rotate: 0 },
+        { duration: 0.52, ease: TURN_EASE },
+      ),
+      animate("[data-contact-shadow]", { opacity: [0, 0.18, 0.6] }, { duration: 0.52 }),
+    ]);
 
-    // 3 — carry it over to the box, landing bottom-edge first on the slot.
-    await animate(
-      "[data-paper]",
-      {
-        x: [0, dx * 0.55, dx],
-        y: [0, dy * 0.3, dy],
-        rotate: [-3, -9, -2],
-        scale: [1, 0.78, FLY_SCALE],
-      },
-      { duration: 0.78, ease: [0.34, 0.8, 0.3, 1] },
-    );
+    // 4 — close the last pixel or two. Perspective foreshortening isn't
+    //     exactly cos(tilt), so measure what actually landed and correct it
+    //     before the note goes in. Alignment with the slot has to be exact.
+    const landed = sheet.getBoundingClientRect();
+    const driftX = slotRect.left + slotRect.width / 2 - (landed.left + landed.width / 2);
+    const driftY = slotRect.bottom - landed.bottom;
+    if (Math.abs(driftX) > 0.5 || Math.abs(driftY) > 0.5) {
+      await animate(
+        "[data-paper]",
+        { x: dx + driftX, y: dy + driftY },
+        { duration: 0.1, ease: "linear" },
+      );
+    }
 
-    // 4 — slide it into the slot (the box is drawn above the paper).
-    await animate(
-      "[data-slide]",
-      { y: 22, scaleY: 0 },
-      { duration: 0.42, ease: [0.55, 0, 0.6, 1] },
-    );
+    // 5 — in it goes. The note travels down by exactly its own on-screen
+    //     height while the clip eats it from the bottom on the same curve,
+    //     so its front edge stays pinned to the slot's lip and the rest
+    //     disappears inside the box. Nothing crosses the front wall.
+    const descent = sheet.getBoundingClientRect().height;
+    const restY = dy + driftY;
+    await Promise.all([
+      animate(
+        "[data-paper]",
+        { y: restY + descent },
+        { duration: 0.36, ease: INSERT_EASE },
+      ),
+      animate(
+        "[data-sheet]",
+        { clipPath: "inset(0% 0% 100% 0%)" },
+        { duration: 0.36, ease: INSERT_EASE },
+      ),
+      animate("[data-slot-sliver]", { opacity: [0, 1] }, { duration: 0.22 }),
+      animate("[data-contact-shadow]", { opacity: [0.6, 0.28, 0] }, { duration: 0.36 }),
+    ]);
 
-    // 5 — the box takes it with a small bounce.
-    await animate(
-      "[data-box]",
-      { y: [0, 7, -4, 2, 0], scaleY: [1, 0.95, 1.03, 0.99, 1], scaleX: [1, 1.04, 0.98, 1.01, 1] },
-      { duration: 0.62, ease: "easeOut" },
-    );
+    // 6 — the box takes the weight. A settle, not a cartoon bounce.
+    await Promise.all([
+      animate(
+        "[data-box]",
+        { y: [0, 3.4, -1.4, 0.7, 0], scaleY: [1, 0.987, 1.007, 0.997, 1] },
+        { duration: 0.3, ease: "easeOut" },
+      ),
+      animate("[data-box-label]", { y: [0, 1.6, -0.5, 0] }, { duration: 0.3, ease: "easeOut" }),
+    ]);
+    void animate("[data-slot-sliver]", { opacity: 0 }, { duration: 0.45, delay: 0.1 });
 
     setPhase("done");
   }
@@ -305,13 +374,15 @@ export default function SubmissionFlow() {
               key={runId}
               data-paper
               ref={paperRef}
-              className="absolute inset-x-0 top-0 mx-auto w-full max-w-2xl will-change-transform"
+              className="absolute inset-x-0 top-0 z-30 mx-auto w-full max-w-2xl will-change-transform"
+              style={{ perspective: 1000 }}
             >
-              <div data-fold-v className="origin-top will-change-transform">
-                <div data-slide className="origin-bottom will-change-transform">
+              <div data-tilt className="will-change-transform">
+                <div data-fold className="origin-top will-change-transform">
                   <div
                     data-sheet
-                    className="paper relative origin-left overflow-hidden will-change-transform"
+                    className="paper relative overflow-hidden will-change-[clip-path,height]"
+                    style={{ clipPath: "inset(0% 0% 0% 0%)" }}
                   >
                     {/* --- the actual form ------------------------------ */}
                     <div data-form-body className="p-6 sm:p-9">
@@ -327,7 +398,7 @@ export default function SubmissionFlow() {
                       />
                     </div>
 
-                    {/* --- what it becomes: a folded sheet -------------- */}
+                    {/* --- what it becomes: a sheet of paper ------------ */}
                     <div
                       data-paper-face
                       aria-hidden
@@ -335,7 +406,7 @@ export default function SubmissionFlow() {
                     >
                       <div>
                         <p className="eyebrow">My idea</p>
-                        <p className="mt-2 line-clamp-2 font-display text-lg leading-snug font-semibold text-navy">
+                        <p className="mt-2 line-clamp-2 font-display text-[17px] leading-snug font-semibold text-navy">
                           {paperTitle}
                         </p>
                       </div>
@@ -350,16 +421,16 @@ export default function SubmissionFlow() {
                       </div>
                     </div>
 
-                    {/* --- fold creases --------------------------------- */}
+                    {/* --- the two creases of a letter fold ------------- */}
                     <div
-                      data-crease-h
+                      data-crease-1
                       aria-hidden
-                      className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-navy/25 opacity-0"
+                      className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-navy/22 opacity-0"
                     />
                     <div
-                      data-crease-v
+                      data-crease-2
                       aria-hidden
-                      className="pointer-events-none absolute inset-y-0 left-[60%] w-px bg-navy/20 opacity-0"
+                      className="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-navy/22 opacity-0"
                     />
                   </div>
                 </div>
@@ -398,16 +469,30 @@ export default function SubmissionFlow() {
       </div>
 
       {/* --- the box itself ------------------------------------------- */}
-      <div className="mt-14 flex justify-center">
-        <div className="relative z-20 w-[240px] sm:w-[280px]">
+      {/* Two layers of one drawing: the body, then the lid with the slot
+          cut out of it. The note is clipped exactly on the slot's front
+          lip, so it goes into the box rather than over it. */}
+      <div className="mt-6 flex justify-center sm:mt-8">
+        <div className="relative z-20 w-[272px] sm:w-[344px]">
           <div data-box className="will-change-transform">
-            <SuggestionBoxArt className="w-full" />
+            <SuggestionBoxArt layer="back" className="block w-full" />
+            <SuggestionBoxArt
+              layer="front"
+              className="pointer-events-none absolute inset-0 block w-full"
+            />
           </div>
-          {/* invisible marker: the centre of the slot */}
+          {/* Invisible, and the single source of truth for where the slot
+              is on screen at the current size. */}
           <span
             data-slot
             aria-hidden
-            className="pointer-events-none absolute left-1/2 top-[32.4%] block h-[4px] w-[4px] -translate-x-1/2"
+            className="pointer-events-none absolute block"
+            style={{
+              left: `${SLOT_BOX.left * 100}%`,
+              top: `${SLOT_BOX.top * 100}%`,
+              width: `${SLOT_BOX.width * 100}%`,
+              height: `${SLOT_BOX.height * 100}%`,
+            }}
           />
         </div>
       </div>
