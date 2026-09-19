@@ -194,6 +194,36 @@ export async function dismissMatch(matchId: string): Promise<ActionResult> {
 }
 
 /**
+ * Undo a dismissal. The pair goes back to being a suggested match.
+ *
+ * Nothing is erased: decided_by and decided_at still say who dismissed it
+ * and when, and the reversal is recorded beside them with the president who
+ * made it and the time. The whole decision trail stays readable.
+ */
+export async function restoreMatch(matchId: string): Promise<ActionResult> {
+  const session = await getPresidentSession();
+  if (!session) return fail("Your session has expired. Sign in again.");
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("suggestion_matches")
+    .update({
+      state: "suggested",
+      reopened_by: session.email,
+      reopened_at: new Date().toISOString(),
+    })
+    .eq("id", matchId)
+    .eq("state", "dismissed")
+    .select("id");
+
+  if (error) return fail(error.message);
+  if (!data || data.length === 0) return fail("That match is no longer dismissed.");
+
+  revalidatePath("/president");
+  return { ok: true };
+}
+
+/**
  * File one suggestion under another as the idea the presidents are
  * tracking. Pass null for primaryId to unlink.
  *

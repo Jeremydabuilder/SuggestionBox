@@ -48,8 +48,10 @@ function match(
     breakdown: {},
     method: "lexical-v1",
     state,
-    decided_by: null,
-    decided_at: null,
+    decided_by: state === "suggested" ? null : "prez@school.org",
+    decided_at: state === "suggested" ? null : "2026-01-02T00:00:00Z",
+    reopened_by: null,
+    reopened_at: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   };
@@ -84,6 +86,21 @@ describe("reading matches for a suggestion", () => {
 
   test("a confirmed match still counts", () => {
     assert.equal(matchCountFor("a", [match("m1", "a", "b", "confirmed")]), 1);
+  });
+
+  test("undoing a dismissal puts the match back in the count", () => {
+    const dismissed = match("m1", "a", "b", "dismissed");
+    assert.equal(matchCountFor("a", [dismissed]), 0);
+    // restoreMatch() sets the state back to suggested and stamps the reversal.
+    const restored: SuggestionMatch = {
+      ...dismissed,
+      state: "suggested",
+      reopened_by: "prez@school.org",
+      reopened_at: "2026-02-01T00:00:00Z",
+    };
+    assert.equal(matchCountFor("a", [restored]), 1);
+    // and the original dismissal is still on the record.
+    assert.equal(restored.decided_at, dismissed.decided_at);
   });
 });
 

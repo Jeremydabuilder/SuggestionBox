@@ -397,9 +397,10 @@ export default function PresidentPanel({
             type="button"
             onClick={runRescan}
             disabled={rescanning}
-            className="text-[13px] font-medium text-navy-soft underline underline-offset-2 hover:text-navy disabled:opacity-60"
+            title="New suggestions are checked for duplicates automatically as they arrive. This rechecks the older ones — use it after changing how matching works, or for suggestions submitted before duplicate detection existed."
+            className="text-[13px] font-medium text-navy-soft underline decoration-dotted underline-offset-2 hover:text-navy disabled:opacity-60"
           >
-            {rescanning ? "Scanning…" : "Rescan for duplicates"}
+            {rescanning ? "Scanning…" : "Scan existing suggestions"}
           </button>
           {rescanNote && <span className="text-[13px] text-accent-ink">{rescanNote}</span>}
           {filtersActive && (

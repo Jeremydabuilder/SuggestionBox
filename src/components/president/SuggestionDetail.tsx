@@ -28,6 +28,7 @@ import {
   dismissMatch,
   loadDetail,
   markRead,
+  restoreMatch,
   setPrimarySuggestion,
   setStatus,
 } from "@/app/president/actions";
@@ -293,6 +294,7 @@ export default function SuggestionDetail({
           allSuggestions={allSuggestions}
           matches={matches}
           pending={pending}
+          currentEmail={currentEmail}
           onOpenSuggestion={onOpenSuggestion}
           onError={setError}
           startTransition={startTransition}
@@ -413,6 +415,7 @@ function SimilarSuggestions({
   allSuggestions,
   matches,
   pending,
+  currentEmail,
   onOpenSuggestion,
   onError,
   startTransition,
@@ -421,22 +424,29 @@ function SimilarSuggestions({
   allSuggestions: Suggestion[];
   matches: SuggestionMatch[];
   pending: boolean;
+  currentEmail: string;
   onOpenSuggestion: (id: string) => void;
   onError: (message: string | null) => void;
   startTransition: (fn: () => void) => void;
 }) {
+  const [showDismissed, setShowDismissed] = useState(false);
+
   const byId = useMemo(
     () => new Map(allSuggestions.map((s) => [s.id, s])),
     [allSuggestions],
   );
 
-  const related = useMemo(() => {
-    return matchesFor(suggestion.id, matches)
-      .filter((m) => m.state !== "dismissed")
+  const [mine, dismissed] = useMemo(() => {
+    const rows = matchesFor(suggestion.id, matches)
       .map((match) => ({ match, other: byId.get(otherIdIn(match, suggestion.id)) }))
       .filter((row): row is { match: SuggestionMatch; other: Suggestion } => Boolean(row.other))
       .sort((a, b) => b.match.score - a.match.score);
+    return [
+      rows.filter((r) => r.match.state !== "dismissed"),
+      rows.filter((r) => r.match.state === "dismissed"),
+    ];
   }, [matches, suggestion.id, byId]);
+  const related = mine;
 
   const groupSize = relatedGroupSize(suggestion, allSuggestions);
   const filedUnder = suggestion.primary_suggestion_id
@@ -452,7 +462,14 @@ function SimilarSuggestions({
     });
   }
 
-  if (related.length === 0 && !filedUnder && ownDuplicates.length === 0) return null;
+  if (
+    related.length === 0 &&
+    dismissed.length === 0 &&
+    !filedUnder &&
+    ownDuplicates.length === 0
+  ) {
+    return null;
+  }
 
   return (
     <section className="border-b border-rule py-5">
@@ -597,6 +614,57 @@ function SimilarSuggestions({
           );
         })}
       </ul>
+
+      {dismissed.length > 0 && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowDismissed((v) => !v)}
+            className="text-[12.5px] font-medium text-navy-soft underline underline-offset-2 hover:text-navy"
+          >
+            {showDismissed ? "Hide" : "Show"} {dismissed.length} dismissed match
+            {dismissed.length === 1 ? "" : "es"}
+          </button>
+
+          {showDismissed && (
+            <ul className="mt-2.5 space-y-2">
+              {dismissed.map(({ match, other }) => (
+                <li
+                  key={match.id}
+                  className="rounded-[10px] border border-dashed border-rule bg-paper-deep/40 px-3.5 py-2.5"
+                >
+                  <p className="text-[13.5px] font-semibold text-navy/70">{other.title}</p>
+                  <p className="mt-0.5 text-[12px] text-navy-soft">
+                    Dismissed
+                    {match.decided_by
+                      ? ` by ${match.decided_by === currentEmail ? "you" : match.decided_by}`
+                      : ""}
+                    {match.decided_at ? " on " : ""}
+                    {match.decided_at ? <LocalTime iso={match.decided_at} /> : null}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn-quiet px-2.5 py-1 text-[12.5px]"
+                      onClick={() => onOpenSuggestion(other.id)}
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="btn-quiet px-2.5 py-1 text-[12.5px]"
+                      onClick={() => run(() => restoreMatch(match.id))}
+                    >
+                      Undo dismissal
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

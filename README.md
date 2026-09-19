@@ -94,9 +94,9 @@ the parts it was made of, so you can see why a pair was flagged.
   already in the box. It runs after the row is saved and can never affect the
   student: if it fails, the submission still succeeded and the error is only
   logged.
-- **On demand.** **Rescan for duplicates** in the dashboard toolbar re-compares
-  everything. Use it for suggestions that predate this feature. Decisions
-  already made are never overwritten by a scan.
+- **On demand.** **Scan existing suggestions** in the dashboard toolbar
+  re-compares everything. Use it for suggestions that predate this feature.
+  Decisions already made are never overwritten by a scan.
 
 Archived suggestions are not candidates — a president has already filed them
 away, and resurfacing them would undo that.
@@ -119,7 +119,18 @@ percentage, and the words the two share. From there:
 | **Mark as related** | Confirms the two are the same idea. Both are left untouched |
 | **Make this one primary** | Files the other suggestion under this one, so the idea is tracked in one place |
 | **Not a duplicate** | Dismisses the match. The row is *kept*, not deleted, so the same pair is never raised again |
+| **Undo dismissal** | Changes your mind. Dismissed matches are tucked behind a **Show n dismissed matches** toggle, and restoring one puts it back in the list |
 | **Unlink** | Removes the link. Both suggestions carry on separately |
+
+Dismissing and undoing are both recorded. `decided_by` / `decided_at` keep who
+dismissed the pair and when; undoing does not erase them, it stamps
+`reopened_by` / `reopened_at` alongside. The row is never deleted, so the whole
+decision trail stays readable.
+
+**Scan existing suggestions** in the toolbar rechecks older suggestions. New
+suggestions are already checked automatically as they arrive, so you only need
+this for suggestions submitted before duplicate detection existed, or after
+changing how matching works.
 
 Filing one suggestion under another only sets a pointer. The duplicate keeps its
 own text, status, history, notes and submitter details, and still appears in the
@@ -183,10 +194,12 @@ Deleting a suggestion is not possible from any client — archive instead.
 
 1. In the Supabase dashboard open **SQL Editor → New query**.
 2. Paste the whole contents of `supabase/migrations/20260101000000_init.sql` and **Run**.
-3. You should see it finish without errors. It creates the four tables the app needs —
-   `suggestions`, `internal_notes`, `authorized_presidents`, `status_history` — plus the
-   rate-limit and digest bookkeeping tables, the triggers, the grants, every RLS policy,
-   and the realtime publication.
+3. Do the same with `supabase/migrations/20260102000000_duplicates.sql` and then
+   `supabase/migrations/20260103000000_duplicate_reversals.sql`, in that order.
+4. You should see each finish without errors. Together they create the tables the app
+   needs — `suggestions`, `internal_notes`, `authorized_presidents`, `status_history`
+   and `suggestion_matches` — plus the rate-limit and digest bookkeeping tables, the
+   triggers, the grants, every RLS policy, and the realtime publication.
 
 If you prefer the CLI: `supabase link --project-ref <ref> && supabase db push`.
 
@@ -279,7 +292,22 @@ npm run dev
      `https://your-domain/auth/callback` redirect URL
    - Cloudflare Turnstile: add the domain to your widget
 
-## 8. Test a real student submission
+## 8. Clear any test submissions
+
+If you submitted test ideas into this Supabase project while setting it up, take
+them out before students arrive. A brand-new project has nothing to clean, so
+you can skip this.
+
+Open `supabase/maintenance/clear_test_data.sql` and run it in the SQL editor. As
+written it **only shows you what is in the box** — the deletes are commented
+out. Read the list, then uncomment the one option that matches your situation
+and run it again.
+
+There is deliberately no button for this in the dashboard. Emptying the
+suggestion box should not be something anyone can do by misclicking while
+reading students' ideas.
+
+## 9. Test a real student submission
 
 1. Open your live site in a private window.
 2. Fill in a title, details, a category and the improvement reason. Leave the name and
@@ -296,7 +324,7 @@ npm run dev
 7. Submit four ideas in a row from the same device — the fourth should be refused with a
    "give it a little while" message. That's the rate limiter.
 
-## 9. Confirm that unauthorized people cannot enter the president panel
+## 10. Confirm that unauthorized people cannot enter the president panel
 
 Work through all five:
 
@@ -343,6 +371,8 @@ src/
   lib/                           env, auth, validation, sanitising, rate limiting, digest
   middleware.ts                  Refreshes the Supabase session cookie
 supabase/migrations/             Schema, policies, triggers, grants, president roster
+supabase/tests/                  Access-control checks to run against a dev database
+supabase/maintenance/            One-off operator scripts (clearing test data)
 ```
 
 ## Commands
@@ -372,3 +402,7 @@ psql "$DATABASE_URL" -f supabase/tests/duplicates_rls.sql
 
 It prints PASS/FAIL per check and rolls back, leaving no data behind. Run it
 against a development database, not production.
+
+Test data never reaches production by any automatic route — there is no seeding
+step and no demo mode — but if you tested against the project you are about to
+launch, clear it with `supabase/maintenance/clear_test_data.sql` (step 8 above).

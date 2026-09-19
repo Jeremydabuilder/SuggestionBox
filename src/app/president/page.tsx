@@ -16,13 +16,10 @@ export default async function PresidentPage() {
   const supabase = await createSupabaseServerClient();
   const [{ data, error }, matchResult] = await Promise.all([
     supabase.from("suggestions").select("*").order("created_at", { ascending: false }).limit(2000),
-    // Dismissed pairs are deliberately left behind: a president has already
-    // said they are not duplicates, so they never come back to the surface.
-    supabase
-      .from("suggestion_matches")
-      .select("*")
-      .neq("state", "dismissed")
-      .order("score", { ascending: false }),
+    // Dismissed pairs come through too, so a president can undo one. They
+    // are filtered out of the counts and badges, and only appear behind a
+    // deliberate "show dismissed" control in the detail pane.
+    supabase.from("suggestion_matches").select("*").order("score", { ascending: false }),
   ]);
 
   if (matchResult.error) {

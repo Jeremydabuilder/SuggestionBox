@@ -85,26 +85,28 @@ export default function SubmissionFlow() {
   const [runId, setRunId] = useState(0);
   const [paperTitle, setPaperTitle] = useState("");
 
+  const compositionRef = useRef<HTMLDivElement>(null);
   const paperAreaRef = useRef<HTMLDivElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
   const successCardRef = useRef<HTMLDivElement>(null);
   const successRef = useRef<HTMLHeadingElement>(null);
 
-  // The card is absolutely positioned so it can fly away without disturbing
+  // The paper is absolutely positioned so it can fly away without disturbing
   // the page, which means the stage has to carry its height. A CSS
   // transition on that height is what closes the gap to the box mid-flight.
+  // Once the note is in, the stage is gone and the message takes its place.
   useEffect(() => {
+    if (phase !== "form") return;
     const area = paperAreaRef.current;
-    const target = phase === "done" ? successCardRef.current : paperRef.current;
-    if (!area || !target) return;
-    if (phase !== "form" && phase !== "done") return;
+    const paper = paperRef.current;
+    if (!area || !paper) return;
 
     const apply = () => {
-      area.style.height = `${target.offsetHeight}px`;
+      area.style.height = `${paper.offsetHeight}px`;
     };
     apply();
     const observer = new ResizeObserver(apply);
-    observer.observe(target);
+    observer.observe(paper);
     return () => observer.disconnect();
   }, [phase, runId]);
 
@@ -340,8 +342,19 @@ export default function SubmissionFlow() {
   }
 
   useEffect(() => {
-    if (phase === "done") successRef.current?.focus();
-  }, [phase]);
+    if (phase !== "done") return;
+    // Focus without scrolling, then bring the WHOLE composition into view —
+    // box, message and button together. On a phone the button is the last
+    // thing to arrive and the easiest to leave below the fold.
+    successRef.current?.focus({ preventScroll: true });
+    const timer = setTimeout(() => {
+      compositionRef.current?.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [phase, prefersReducedMotion]);
 
   function submitAnother() {
     setForm(EMPTY_FORM);
@@ -362,143 +375,199 @@ export default function SubmissionFlow() {
 
   const busy = phase === "sending" || phase === "animating";
   const showForm = phase === "form" || phase === "sending" || phase === "animating";
+  const done = phase === "done";
+
+  // Reduced motion gets the finished composition with no staged entrance.
+  const rise = (delay: number) =>
+    prefersReducedMotion
+      ? { initial: { opacity: 1, y: 0 }, animate: { opacity: 1, y: 0 } }
+      : {
+          initial: { opacity: 0, y: 16 },
+          animate: { opacity: 1, y: 0 },
+          transition: { duration: 0.45, ease: EASE_OUT, delay },
+        };
 
   return (
     <div ref={scope} className="relative">
+      {/*
+        One composition, two arrangements. While the form is up, the paper
+        sits above the box. Once the note is in, the box moves to the left
+        and the message comes in beside it.
+
+        The box is a layout-animated element, so it TRAVELS between those two
+        arrangements instead of cutting. That continuity is the point: the
+        box the note just went into has to be recognisably the same box.
+      */}
       <div
-        ref={paperAreaRef}
-        className="relative transition-[height] duration-[420ms] ease-out"
+        ref={compositionRef}
+        className={
+          done
+            ? "flex flex-col items-center gap-6 lg:flex-row lg:items-center lg:justify-center lg:gap-12"
+            : "flex flex-col"
+        }
       >
-        {showForm && (
+        {/* --- the paper, and then the message ----------------------- */}
+        <div className={done ? "order-2 w-full lg:max-w-[420px]" : "order-1"}>
+          {showForm && (
             <div
-              key={runId}
-              data-paper
-              ref={paperRef}
-              className="absolute inset-x-0 top-0 z-30 mx-auto w-full max-w-2xl will-change-transform"
-              style={{ perspective: 1000 }}
+              ref={paperAreaRef}
+              className="relative transition-[height] duration-[420ms] ease-out"
             >
-              <div data-tilt className="will-change-transform">
-                <div data-fold className="origin-top will-change-transform">
-                  <div
-                    data-sheet
-                    className="paper relative overflow-hidden will-change-[clip-path,height]"
-                    style={{ clipPath: "inset(0% 0% 0% 0%)" }}
-                  >
-                    {/* --- the actual form ------------------------------ */}
-                    <div data-form-body className="p-6 sm:p-9">
-                      <SuggestionFormFields
-                        form={form}
-                        errors={errors}
-                        formError={formError}
-                        busy={busy}
-                        onChange={update}
-                        onSubmit={handleSubmit}
-                        onToken={setTurnstileToken}
-                        turnstileReset={turnstileReset}
+              <div
+                key={runId}
+                data-paper
+                ref={paperRef}
+                className="absolute inset-x-0 top-0 z-30 mx-auto w-full max-w-2xl will-change-transform"
+                style={{ perspective: 1000 }}
+              >
+                <div data-tilt className="will-change-transform">
+                  <div data-fold className="origin-top will-change-transform">
+                    <div
+                      data-sheet
+                      className="paper relative overflow-hidden will-change-[clip-path,height]"
+                      style={{ clipPath: "inset(0% 0% 0% 0%)" }}
+                    >
+                      {/* --- the actual form ------------------------------ */}
+                      <div data-form-body className="p-6 sm:p-9">
+                        <SuggestionFormFields
+                          form={form}
+                          errors={errors}
+                          formError={formError}
+                          busy={busy}
+                          onChange={update}
+                          onSubmit={handleSubmit}
+                          onToken={setTurnstileToken}
+                          turnstileReset={turnstileReset}
+                        />
+                      </div>
+
+                      {/* --- what it becomes: a sheet of paper ------------ */}
+                      <div
+                        data-paper-face
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 flex flex-col justify-between p-6 opacity-0"
+                      >
+                        <div>
+                          <p className="eyebrow">My idea</p>
+                          <p className="mt-2 line-clamp-2 font-display text-[17px] leading-snug font-semibold text-navy">
+                            {paperTitle}
+                          </p>
+                        </div>
+                        <div className="space-y-2.5" aria-hidden>
+                          {[92, 100, 78, 96, 60].map((w, i) => (
+                            <div
+                              key={i}
+                              className="h-[3px] rounded-full bg-navy/12"
+                              style={{ width: `${w}%` }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* --- the two creases of a letter fold ------------- */}
+                      <div
+                        data-crease-1
+                        aria-hidden
+                        className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-navy/22 opacity-0"
+                      />
+                      <div
+                        data-crease-2
+                        aria-hidden
+                        className="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-navy/22 opacity-0"
                       />
                     </div>
-
-                    {/* --- what it becomes: a sheet of paper ------------ */}
-                    <div
-                      data-paper-face
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 flex flex-col justify-between p-6 opacity-0"
-                    >
-                      <div>
-                        <p className="eyebrow">My idea</p>
-                        <p className="mt-2 line-clamp-2 font-display text-[17px] leading-snug font-semibold text-navy">
-                          {paperTitle}
-                        </p>
-                      </div>
-                      <div className="space-y-2.5" aria-hidden>
-                        {[92, 100, 78, 96, 60].map((w, i) => (
-                          <div
-                            key={i}
-                            className="h-[3px] rounded-full bg-navy/12"
-                            style={{ width: `${w}%` }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* --- the two creases of a letter fold ------------- */}
-                    <div
-                      data-crease-1
-                      aria-hidden
-                      className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-navy/22 opacity-0"
-                    />
-                    <div
-                      data-crease-2
-                      aria-hidden
-                      className="pointer-events-none absolute inset-x-0 top-2/3 h-px bg-navy/22 opacity-0"
-                    />
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-        {/* --- the success message sits where the form was ------------- */}
-        <AnimatePresence>
-          {phase === "done" && (
+          {done && (
             <motion.div
               ref={successCardRef}
-              initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, ease: EASE_OUT, delay: prefersReducedMotion ? 0 : 0.1 }}
-              className="paper absolute inset-x-0 top-0 mx-auto max-w-2xl p-8 text-center sm:p-12"
+              initial={{ opacity: prefersReducedMotion ? 1 : 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.25 }}
+              className="paper w-full p-6 text-center sm:p-8 lg:text-left"
             >
-              <p className="eyebrow">Delivered</p>
-              <h2
+              <motion.h2
                 ref={successRef}
                 tabIndex={-1}
-                className="mt-3 text-3xl font-bold text-navy outline-none sm:text-4xl"
+                {...rise(0.18)}
+                className="text-[27px] leading-tight font-bold text-navy outline-none sm:text-[32px]"
               >
                 Your idea is in the box!
-              </h2>
-              <p className="mx-auto mt-4 max-w-md text-navy-soft">
-                Our co-presidents read every suggestion in their dashboard. Thanks for helping
-                make this school better.
-              </p>
-              <button type="button" onClick={submitAnother} className="btn-primary mt-8">
-                Submit another idea
-              </button>
+              </motion.h2>
+
+              <motion.p
+                {...rise(0.3)}
+                className="mt-3 text-[15px] leading-relaxed text-navy-soft"
+              >
+                It is waiting in the co-presidents&rsquo; private dashboard — the only place
+                suggestions are ever read. Thanks for helping make this school better.
+              </motion.p>
+
+              {/* The button arrives last, once there is something to leave. */}
+              <motion.div {...rise(0.52)} className="mt-7">
+                <button type="button" onClick={submitAnother} className="btn-primary">
+                  Submit another idea
+                </button>
+              </motion.div>
             </motion.div>
           )}
-        </AnimatePresence>
-      </div>
+        </div>
 
-      {/* --- the box itself ------------------------------------------- */}
-      {/* Two layers of one drawing: the body, then the lid with the slot
-          cut out of it. The note is clipped exactly on the slot's front
-          lip, so it goes into the box rather than over it. */}
-      <div className="mt-6 flex justify-center sm:mt-8">
-        <div className="relative z-20 w-[272px] sm:w-[344px]">
-          <div data-box className="will-change-transform">
-            <SuggestionBoxArt layer="back" className="block w-full" />
-            <SuggestionBoxArt
-              layer="front"
-              className="pointer-events-none absolute inset-0 block w-full"
-            />
+        {/* --- the box ------------------------------------------------- */}
+        <div className={done ? "order-1 shrink-0" : "order-2"}>
+          <div className={done ? "" : "mt-6 flex justify-center sm:mt-8"}>
+            {/* Two layers of one drawing: the body, then the lid with the
+                slot cut out of it. The note is clipped exactly on the slot's
+                front lip, so it goes into the box rather than over it.
+
+                `layout` lives on THIS element, not on a wrapper, because its
+                width is the same in both arrangements. A layout animation
+                interpolates size as well as position, so putting it on a
+                wrapper that is full-width in one arrangement and
+                shrink-to-fit in the other makes the box balloon mid-move. */}
+            <motion.div
+              layout
+              transition={
+                prefersReducedMotion
+                  ? { duration: 0 }
+                  : { duration: 0.55, ease: EASE_OUT }
+              }
+              className="relative z-20 w-[272px] sm:w-[440px]"
+            >
+              <div data-box className="will-change-transform">
+                <SuggestionBoxArt layer="back" className="block w-full" />
+                <SuggestionBoxArt
+                  layer="front"
+                  className="pointer-events-none absolute inset-0 block w-full"
+                />
+              </div>
+              {/* Invisible, and the single source of truth for where the slot
+                  is on screen at the current size. */}
+              <span
+                data-slot
+                aria-hidden
+                className="pointer-events-none absolute block"
+                style={{
+                  left: `${SLOT_BOX.left * 100}%`,
+                  top: `${SLOT_BOX.top * 100}%`,
+                  width: `${SLOT_BOX.width * 100}%`,
+                  height: `${SLOT_BOX.height * 100}%`,
+                }}
+              />
+            </motion.div>
           </div>
-          {/* Invisible, and the single source of truth for where the slot
-              is on screen at the current size. */}
-          <span
-            data-slot
-            aria-hidden
-            className="pointer-events-none absolute block"
-            style={{
-              left: `${SLOT_BOX.left * 100}%`,
-              top: `${SLOT_BOX.top * 100}%`,
-              width: `${SLOT_BOX.width * 100}%`,
-              height: `${SLOT_BOX.height * 100}%`,
-            }}
-          />
+
+          {!done && (
+            <p className="mt-5 text-center text-sm text-navy-soft">
+              Every idea lands in the co-presidents&rsquo; private dashboard.
+            </p>
+          )}
         </div>
       </div>
-      <p className="mt-5 text-center text-sm text-navy-soft">
-        Every idea lands in the co-presidents&rsquo; private dashboard.
-      </p>
 
       <span aria-live="polite" className="sr-only">
         {phase === "sending" ? "Sending your suggestion" : ""}
