@@ -306,7 +306,7 @@ export default function SuggestionDetail({
             Internal notes
           </h3>
           <p className="mt-1 text-[12.5px] text-navy-soft">
-            Only the two of you can see these. Students never do.
+            Internal notes are for the co-presidents. They are not shown to students.
           </p>
 
           <div className="mt-3 space-y-2.5">

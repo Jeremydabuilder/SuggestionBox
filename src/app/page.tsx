@@ -48,12 +48,17 @@ export default function HomePage() {
         </p>
       </section>
 
-      <div className="mt-14 sm:mt-20">
+      {/* Tighter on a phone, where this gap is what separates the intro
+          from the box once the success state replaces the form. */}
+      <div className="mt-9 sm:mt-20">
         <SubmissionFlow />
       </div>
 
       <footer className="mt-24 border-t border-rule pt-8 text-center text-sm text-navy-soft">
-        <p>Run by the student government. Read by the two co-presidents. Nobody else.</p>
+        <p className="mx-auto max-w-xl">
+          Run by the Student Government co-presidents. Suggestions are kept private and
+          reviewed only for Student Government purposes.
+        </p>
       </footer>
     </main>
   );

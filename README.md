@@ -175,6 +175,7 @@ dismissed.
 | Route protection | `/president` is gated on the server and redirects before rendering. The URL grants nothing |
 | Duplicate data | Students have no privileges on `suggestion_matches` and cannot read `primary_suggestion_id`. Nobody can delete a match, so a dismissal cannot be undone by a later scan |
 | Secrets | The service-role key and all other private values are server-only; nothing private reaches the browser |
+| Placeholder accounts | The setup files' placeholder co-president addresses fail the build and never authorize anyone at runtime |
 
 Deleting a suggestion is not possible from any client — archive instead.
 
@@ -241,6 +242,9 @@ goes out at most once per calendar day, and only if unread suggestions are waiti
 
 Copy `.env.example` to `.env.local` for local development, and add the same variables in
 Vercel under **Project Settings → Environment Variables**.
+
+Run `npm run check:deploy` once you have filled them in — it tells you what is
+still missing or still a placeholder before you find out from a deploy.
 
 | Variable | Required | What it's for |
 |---|---|---|
@@ -373,17 +377,47 @@ src/
 supabase/migrations/             Schema, policies, triggers, grants, president roster
 supabase/tests/                  Access-control checks to run against a dev database
 supabase/maintenance/            One-off operator scripts (clearing test data)
+scripts/check-deployment.mjs     Pre-build check: placeholders, missing keys, localhost
 ```
 
 ## Commands
 
 ```bash
-npm run dev        # local development
-npm run build      # production build
-npm run typecheck  # TypeScript, no emit
-npm run lint       # ESLint
-npm test           # unit tests (node:test, no extra dependencies)
+npm run dev           # local development
+npm run build         # production build (runs the deployment check first)
+npm run check:deploy  # deployment check on its own
+npm run typecheck     # TypeScript, no emit
+npm run lint          # ESLint
+npm test              # unit tests (node:test, no extra dependencies)
 ```
+
+### The deployment check
+
+`npm run build` runs `scripts/check-deployment.mjs` first, so it runs on Vercel
+too. It **fails the build** if the co-president addresses are still the
+placeholders the setup files ship with:
+
+```
+ERROR   PRESIDENT_EMAILS still contains placeholder addresses:
+        co-president-one@example.org, co-president-two@example.org
+        Replace them with the real co-president addresses, in PRESIDENT_EMAILS
+        and in the authorized_presidents table. Nobody can sign in to
+        /president until you do: these domains are reserved for documentation
+        and cannot receive the link.
+```
+
+That is the failure worth catching loudly, because the site would otherwise
+look completely finished and simply have no way in — `example.org` and friends
+are reserved by RFC 2606 and cannot receive the sign-in link.
+
+It also errors on missing Supabase keys and on a `NEXT_PUBLIC_SITE_URL` still
+pointing at localhost, and warns about a missing Turnstile key, a missing
+`IP_HASH_SALT`, a digest switched on without Resend, and a president list that
+is not exactly two addresses. A checkout with no environment at all is treated
+as a local build and passes quietly.
+
+Belt and braces: a placeholder address never authorizes anyone at runtime
+either, even if one is left in the `authorized_presidents` table.
 
 ### Tests
 

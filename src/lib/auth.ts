@@ -1,5 +1,6 @@
 import "server-only";
 import { serverEnv } from "@/lib/env";
+import { isPlaceholderEmail } from "@/lib/deployment-checks";
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
 
 export interface PresidentSession {
@@ -22,6 +23,20 @@ export async function isAuthorizedEmail(email: string | null | undefined): Promi
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
   if (!normalized) return false;
+
+  // A placeholder from the setup files never authorizes anyone. Those domains
+  // are reserved for documentation and cannot receive a sign-in link, so an
+  // address like this can only be a leftover from setup — most likely the
+  // unedited roster migration.
+  if (isPlaceholderEmail(normalized)) {
+    console.error(
+      `[auth] Refused a placeholder co-president address (${normalized}). ` +
+        "Replace the placeholders in PRESIDENT_EMAILS and in the " +
+        "authorized_presidents table with the real addresses. " +
+        "Run `npm run check:deploy` to see everything that still needs setting.",
+    );
+    return false;
+  }
 
   const allowlist = serverEnv.presidentEmails;
   if (allowlist.length > 0 && !allowlist.includes(normalized)) return false;

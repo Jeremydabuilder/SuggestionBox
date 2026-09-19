@@ -40,8 +40,8 @@ export default async function LoginPage({
         <p className="eyebrow">Private</p>
         <h1 className="mt-3 text-2xl font-bold text-navy">Co-president sign-in</h1>
         <p className="mt-2.5 text-sm leading-relaxed text-navy-soft">
-          Enter your school email and we&rsquo;ll send a one-time sign-in link. Only the two
-          approved co-president addresses can get in.
+          Enter your school email and we&rsquo;ll send a one-time sign-in link. Sign-in links
+          work for the two approved co-president addresses.
         </p>
 
         {notice && (

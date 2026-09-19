@@ -503,8 +503,8 @@ export default function SubmissionFlow() {
                 {...rise(0.3)}
                 className="mt-3 text-[15px] leading-relaxed text-navy-soft"
               >
-                It is waiting in the co-presidents&rsquo; private dashboard — the only place
-                suggestions are ever read. Thanks for helping make this school better.
+                It&rsquo;s waiting in the co-presidents&rsquo; private dashboard. Thanks for
+                helping improve our school.
               </motion.p>
 
               {/* The button arrives last, once there is something to leave. */}
@@ -774,10 +774,10 @@ function SuggestionFormFields({
         </div>
 
         <p className="text-[13px] leading-relaxed text-navy-soft">
-          <span className="font-semibold text-navy">Your privacy.</span> Only the two
-          student-government co-presidents can read suggestions. Nothing you write is shown
-          publicly, and there&rsquo;s no voting or commenting. If you leave your name or email
-          out, we have no way of knowing who sent it.
+          <span className="font-semibold text-navy">Your privacy.</span> Suggestions go to
+          the student-government co-presidents and are not posted publicly — there is no
+          voting and no commenting. If you leave your name and email out, your suggestion is
+          saved without them.
         </p>
 
         <Turnstile onToken={onToken} resetSignal={turnstileReset} />
