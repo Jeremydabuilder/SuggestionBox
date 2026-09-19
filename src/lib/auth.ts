@@ -1,5 +1,4 @@
 import "server-only";
-import { serverEnv } from "@/lib/env";
 import { isPlaceholderEmail } from "@/lib/deployment-checks";
 import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
 
@@ -11,13 +10,17 @@ export interface PresidentSession {
 /**
  * Is this address one of the two approved co-presidents?
  *
- * Two independent sources have to agree, and the check runs only on the
- * server:
- *   1. the PRESIDENT_EMAILS environment variable, and
- *   2. the authorized_presidents table (which also backs the RLS policies).
+ * The `authorized_presidents` table is the single source of truth, and the
+ * check runs only on the server.
  *
- * If PRESIDENT_EMAILS is left unset, the database table is the single source
- * of truth. If it is set, an address must appear in both.
+ * There used to be a second list in a PRESIDENT_EMAILS environment variable
+ * that had to agree with the table. It was removed: the RLS policies that
+ * actually guard the data call `is_president()`, which reads the table and
+ * nothing else, so the environment variable never added a real barrier. What
+ * it could do was drift out of step with the table and lock a president out
+ * of a site that looked fine — and it meant the two real addresses had to be
+ * stored in a second place. One list, in the database, where only the
+ * service role can write to it.
  */
 export async function isAuthorizedEmail(email: string | null | undefined): Promise<boolean> {
   if (!email) return false;
@@ -31,15 +34,12 @@ export async function isAuthorizedEmail(email: string | null | undefined): Promi
   if (isPlaceholderEmail(normalized)) {
     console.error(
       `[auth] Refused a placeholder co-president address (${normalized}). ` +
-        "Replace the placeholders in PRESIDENT_EMAILS and in the " +
-        "authorized_presidents table with the real addresses. " +
+        "Replace the placeholder rows in the authorized_presidents table " +
+        "with the real addresses — see supabase/maintenance/add_presidents.sql. " +
         "Run `npm run check:deploy` to see everything that still needs setting.",
     );
     return false;
   }
-
-  const allowlist = serverEnv.presidentEmails;
-  if (allowlist.length > 0 && !allowlist.includes(normalized)) return false;
 
   const service = createSupabaseServiceClient();
   const { data, error } = await service

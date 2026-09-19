@@ -1,0 +1,61 @@
+# Render Blueprint — optional, but it keeps the service definition in the
+# repository instead of only in the dashboard.
+#
+# You can either point Render at this file (Blueprints -> New Blueprint
+# Instance) or create a Web Service by hand with the same settings. The
+# README walks through the by-hand route; this file is that, written down.
+#
+# A Node WEB SERVICE, not a static site: this app has route handlers, server
+# actions, middleware and server-guarded pages, all of which need a running
+# Node process.
+#
+# No database is defined here. Supabase stays the database and the auth
+# provider; Render only runs the web server.
+
+services:
+  - type: web
+    name: suggestion-box
+    runtime: node
+    # `starter` keeps the service always on. The free plan spins down when
+    # idle, and a cold start can outlast the click on a magic-link email,
+    # which looks exactly like broken authentication.
+    plan: starter
+    branch: main
+    autoDeploy: true
+
+    # npm ci installs exactly what package-lock.json pins, and fails rather
+    # than quietly resolving something newer.
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+
+    # Cheap, and deliberately does not touch Supabase — see the route.
+    healthCheckPath: /api/health
+
+    envVars:
+      # Pinned so a change to Render's default cannot move the build.
+      - key: NODE_VERSION
+        value: 22.11.0
+
+      # `sync: false` means: prompt for this in the Render dashboard, and do
+      # NOT store the value in this file. Every secret below stays out of
+      # the repository.
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: IP_HASH_SALT
+        sync: false
+
+      # Set these once you have them; leave them blank to start with.
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: NEXT_PUBLIC_TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+
+      # The daily digest stays off for launch. Nothing else depends on it.
+      - key: DIGEST_ENABLED
+        value: "false"

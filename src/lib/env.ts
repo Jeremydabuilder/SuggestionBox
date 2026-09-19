@@ -31,18 +31,14 @@ export const serverEnv = {
   get supabaseServiceRoleKey() {
     return required("SUPABASE_SERVICE_ROLE_KEY");
   },
-  /** The authorized co-president addresses, lowercased. */
-  get presidentEmails(): string[] {
-    return (process.env.PRESIDENT_EMAILS ?? "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-  },
   get siteUrl() {
     const explicit = optional("NEXT_PUBLIC_SITE_URL");
     if (explicit) return explicit.replace(/\/$/, "");
-    const vercel = optional("VERCEL_PROJECT_PRODUCTION_URL") ?? optional("VERCEL_URL");
-    if (vercel) return `https://${vercel}`;
+    // Render sets RENDER_EXTERNAL_URL to the service's own address, scheme
+    // included — the onrender.com address at first, and the custom domain
+    // once one is attached and set as primary.
+    const render = optional("RENDER_EXTERNAL_URL");
+    if (render) return render.replace(/\/$/, "");
     return "http://localhost:3000";
   },
   get turnstileSecretKey() {

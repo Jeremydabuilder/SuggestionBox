@@ -1,11 +1,15 @@
 /**
  * Pre-flight checks for a deployment.
  *
- * The one that matters most: the setup instructions ship with placeholder
- * co-president addresses, in both `.env.example` and the roster migration.
- * Deploying with those still in place produces a site that looks finished
- * and that NOBODY can sign in to — the placeholder domains are reserved by
- * RFC 2606 and cannot receive mail, so the sign-in link goes nowhere.
+ * The check that matters most is that the two co-presidents actually exist
+ * in Supabase. Deploying without them produces a site that looks completely
+ * finished and that nobody can sign in to.
+ *
+ * That check reads the roster out of Supabase rather than out of an
+ * environment variable, so the two real addresses never have to be
+ * committed, put in deploy settings, or printed in a build log. The rules
+ * below never put a real address into a message — only a placeholder, which
+ * is safe by definition because it came from this file.
  *
  * Pure and dependency-free, so the same rules run in the pre-build script,
  * in the server at runtime, and in the tests.
@@ -41,7 +45,6 @@ export interface DeploymentProblem {
 }
 
 export interface DeploymentEnv {
-  presidentEmails?: string;
   supabaseUrl?: string;
   supabaseAnonKey?: string;
   serviceRoleKey?: string;
@@ -62,50 +65,118 @@ export function parseEmails(raw: string | undefined): string[] {
 }
 
 /**
- * Everything wrong with an environment, worst first.
+ * What a lookup of the authorized_presidents table came back with.
  *
- * An environment with nothing configured at all is treated as a local build
- * rather than a broken deployment — that is the normal state of a fresh
- * checkout, and failing there would just be noise.
+ * The script does the network call; these are the shapes it can produce, so
+ * the rules that interpret them stay pure and testable.
  */
+export type RosterLookup =
+  | { status: "ok"; emails: string[] }
+  | { status: "unauthorized"; detail: string }
+  | { status: "missing-table"; detail: string }
+  | { status: "unreachable"; detail: string };
+
+/**
+ * Judge the roster.
+ *
+ * Deliberately never names a real address: a wrong-looking roster is
+ * reported by COUNT, and the operator looks at their own SQL editor to see
+ * who is in it. Only placeholders are named, and those are ours.
+ */
+export function describeRosterProblems(lookup: RosterLookup): DeploymentProblem[] {
+  if (lookup.status === "unauthorized") {
+    return [
+      {
+        level: "error",
+        message: `Supabase refused the service-role key (${lookup.detail}).`,
+        fix: "Check SUPABASE_SERVICE_ROLE_KEY against Project Settings -> API Keys.",
+      },
+    ];
+  }
+
+  if (lookup.status === "missing-table") {
+    return [
+      {
+        level: "error",
+        message: "The authorized_presidents table does not exist in Supabase.",
+        fix:
+          "Run the files in supabase/migrations/ in the Supabase SQL Editor, " +
+          "oldest first.",
+      },
+    ];
+  }
+
+  if (lookup.status === "unreachable") {
+    return [
+      {
+        level: "warning",
+        message: `Could not reach Supabase to check the co-presidents (${lookup.detail}).`,
+        fix:
+          "The build will continue. Run `npm run check:deploy` once it is " +
+          "reachable, or confirm the roster in the Supabase SQL Editor.",
+      },
+    ];
+  }
+
+  const placeholders = findPlaceholderEmails(lookup.emails);
+  if (placeholders.length > 0) {
+    return [
+      {
+        level: "error",
+        message:
+          "The authorized_presidents table still holds " +
+          `${placeholders.length === 1 ? "a placeholder address" : "placeholder addresses"}: ` +
+          placeholders.join(", "),
+        fix:
+          "Replace them with the real co-president addresses using " +
+          "supabase/maintenance/add_presidents.sql. Nobody can sign in to " +
+          "/president until you do: these domains are reserved for " +
+          "documentation and cannot receive the sign-in link.",
+      },
+    ];
+  }
+
+  if (lookup.emails.length === 0) {
+    return [
+      {
+        level: "error",
+        message: "No co-presidents are set up in Supabase.",
+        fix:
+          "Add the two of them with supabase/maintenance/add_presidents.sql. " +
+          "Until you do, nobody can sign in to /president.",
+      },
+    ];
+  }
+
+  if (lookup.emails.length !== 2) {
+    return [
+      {
+        level: "warning",
+        message: `Supabase lists ${lookup.emails.length} authorized presidents, not 2.`,
+        fix:
+          "This box is built for exactly two co-presidents. Check the roster " +
+          "in the Supabase SQL Editor — the addresses are not printed here.",
+      },
+    ];
+  }
+
+  return [];
+}
+
 export function describeDeploymentProblems(env: DeploymentEnv): DeploymentProblem[] {
   const problems: DeploymentProblem[] = [];
-  const emails = parseEmails(env.presidentEmails);
-
-  const placeholders = findPlaceholderEmails(emails);
-  if (placeholders.length > 0) {
-    problems.push({
-      level: "error",
-      message:
-        `PRESIDENT_EMAILS still contains ${placeholders.length === 1 ? "a placeholder address" : "placeholder addresses"}: ` +
-        placeholders.join(", "),
-      fix:
-        "Replace them with the real co-president addresses, in PRESIDENT_EMAILS and in " +
-        "the authorized_presidents table. Nobody can sign in to /president until you do: " +
-        "these domains are reserved for documentation and cannot receive the link.",
-    });
-  }
-
-  if (emails.length > 0 && emails.length !== 2) {
-    problems.push({
-      level: "warning",
-      message: `PRESIDENT_EMAILS lists ${emails.length} address${emails.length === 1 ? "" : "es"}, not 2.`,
-      fix: "This box is built for exactly two co-presidents. Check the list is right.",
-    });
-  }
 
   const required: [string, string | undefined][] = [
     ["NEXT_PUBLIC_SUPABASE_URL", env.supabaseUrl],
     ["NEXT_PUBLIC_SUPABASE_ANON_KEY", env.supabaseAnonKey],
     ["SUPABASE_SERVICE_ROLE_KEY", env.serviceRoleKey],
-    ["PRESIDENT_EMAILS", env.presidentEmails],
   ];
   for (const [name, value] of required) {
     if (!value) {
       problems.push({
         level: "error",
         message: `${name} is not set.`,
-        fix: "Add it in Vercel under Project Settings -> Environment Variables.",
+        fix: "Add it in Render under your service -> Environment.",
       });
     }
   }
@@ -146,7 +217,7 @@ export function describeDeploymentProblems(env: DeploymentEnv): DeploymentProble
       problems.push({
         level: "warning",
         message: "DIGEST_ENABLED is true but CRON_SECRET is not set.",
-        fix: "Without it the digest endpoint refuses every request, including Vercel's.",
+        fix: "Without it the digest endpoint refuses every request, including the scheduled one.",
       });
     }
   }
@@ -156,5 +227,5 @@ export function describeDeploymentProblems(env: DeploymentEnv): DeploymentProble
 
 /** True when nothing at all is configured — a fresh checkout, not a deployment. */
 export function looksUnconfigured(env: DeploymentEnv): boolean {
-  return !env.supabaseUrl && !env.supabaseAnonKey && !env.serviceRoleKey && !env.presidentEmails;
+  return !env.supabaseUrl && !env.supabaseAnonKey && !env.serviceRoleKey;
 }

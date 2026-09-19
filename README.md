@@ -15,7 +15,8 @@ the dashboard is the inbox. An optional daily digest is available and is off by 
 ## Stack
 
 Next.js 15 (App Router) · TypeScript · Tailwind CSS v4 · Framer Motion ·
-Supabase (Postgres, Auth, Realtime, Row Level Security) · Resend *(optional)* · Vercel
+Supabase (Postgres, Auth, Realtime, Row Level Security) · Resend *(optional)* ·
+Render (Node web service)
 
 ---
 
@@ -175,7 +176,8 @@ dismissed.
 | Route protection | `/president` is gated on the server and redirects before rendering. The URL grants nothing |
 | Duplicate data | Students have no privileges on `suggestion_matches` and cannot read `primary_suggestion_id`. Nobody can delete a match, so a dismissal cannot be undone by a later scan |
 | Secrets | The service-role key and all other private values are server-only; nothing private reaches the browser |
-| Placeholder accounts | The setup files' placeholder co-president addresses fail the build and never authorize anyone at runtime |
+| Placeholder accounts | The placeholder co-president addresses fail the build and never authorize anyone at runtime |
+| Email privacy | The two real addresses exist only in your Supabase project. They are not in this repository, not in deploy settings, and never printed in a build log |
 
 Deleting a suggestion is not possible from any client — archive instead.
 
@@ -194,35 +196,48 @@ Deleting a suggestion is not possible from any client — archive instead.
 ## 2. Run the database migration
 
 1. In the Supabase dashboard open **SQL Editor → New query**.
-2. Paste the whole contents of `supabase/migrations/20260101000000_init.sql` and **Run**.
-3. Do the same with `supabase/migrations/20260102000000_duplicates.sql` and then
-   `supabase/migrations/20260103000000_duplicate_reversals.sql`, in that order.
-4. You should see each finish without errors. Together they create the tables the app
-   needs — `suggestions`, `internal_notes`, `authorized_presidents`, `status_history`
-   and `suggestion_matches` — plus the rate-limit and digest bookkeeping tables, the
+2. Run the three files in `supabase/migrations/` **in order**, each as its own query:
+   1. `20260101000000_init.sql`
+   2. `20260102000000_duplicates.sql`
+   3. `20260103000000_duplicate_reversals.sql`
+3. Each should finish without errors. Together they create the tables the app needs —
+   `suggestions`, `internal_notes`, `authorized_presidents`, `status_history` and
+   `suggestion_matches` — plus the rate-limit and digest bookkeeping tables, the
    triggers, the grants, every RLS policy, and the realtime publication.
 
 If you prefer the CLI: `supabase link --project-ref <ref> && supabase db push`.
 
-## 3. Add the two authorized president email addresses
+## 3. Add the two co-presidents
 
-1. Open `supabase/migrations/20260101000100_seed_presidents.sql`.
-2. Replace the two placeholder addresses with the real co-president addresses.
-3. Run it in the SQL editor.
-4. Confirm: `select * from authorized_presidents;` should show exactly two rows.
+The `authorized_presidents` table in your Supabase project is the **one list** of
+co-presidents. There is no environment variable for them and nothing to commit.
 
-Put **the same two addresses** in the `PRESIDENT_EMAILS` environment variable in step 5.
-An address has to be in both places to get in, so removing a graduating president from
-either one locks them out.
+1. Open `supabase/maintenance/add_presidents.sql`.
+2. Copy it into your editor and replace the placeholders with the two real
+   addresses and names. **Do not commit your edited copy** — the file in the
+   repository stays as placeholders.
+3. Paste the result into the Supabase SQL editor and **Run**.
+4. The file ends with a `select` so you can confirm exactly two rows.
 
-**Also configure Supabase Auth** (**Authentication → URL Configuration**):
+Why one list and not two: the RLS policies that actually guard the data call
+`is_president()`, which reads this table and nothing else. An environment
+variable holding the same addresses would add no real barrier, but it could
+drift out of step with the table and lock a president out of a site that looks
+perfectly healthy — and it would put the two real addresses somewhere they do
+not need to be. Only the service role can write to this table, so it is already
+the protected copy.
 
-- **Site URL**: your production URL, e.g. `https://suggestions.yourschool.org`
-- **Redirect URLs**: add `https://suggestions.yourschool.org/auth/callback`
-  and, for local work, `http://localhost:3000/auth/callback`
+To remove a president later — a graduating co-president, say — delete their row.
+They lose access on their next request. There is nothing else to change.
 
-Under **Authentication → Providers**, leave **Email** enabled; everything else can be off.
-The app only ever sends a magic link to an address already on the roster.
+**Also configure Supabase Auth** (**Authentication → URL Configuration**). You will
+come back to this in step 6 with your real Render address; for now:
+
+- **Site URL**: `http://localhost:3000`
+- **Redirect URLs**: add `http://localhost:3000/auth/callback`
+
+Under **Authentication → Providers**, leave **Email** enabled; everything else can be
+off. The app only ever sends a magic link to an address already on the roster.
 
 ## 4. Configure Resend *(optional — skip this and everything still works)*
 
@@ -230,39 +245,45 @@ The app never emails on submission. Resend is only for the optional once-a-day d
 
 1. Create an account at [resend.com](https://resend.com) and verify your sending domain.
 2. Create an API key and copy it.
-3. Set `RESEND_API_KEY`, `DIGEST_FROM_EMAIL` (an address on the verified domain) and
-   `DIGEST_ENABLED=true`.
-4. `vercel.json` already schedules `/api/cron/digest` daily at 22:00 UTC. Adjust the cron
-   expression if you'd rather have it at a different time.
+3. Set `RESEND_API_KEY`, `DIGEST_FROM_EMAIL` (an address on the verified domain),
+   `CRON_SECRET` and `DIGEST_ENABLED=true`.
+4. Something has to call `/api/cron/digest` once a day. On Render that means adding a
+   separate **Cron Job** service that runs
+   `curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://your-site/api/cron/digest`.
+
+**Leave all of this until the site is working.** The digest is off by default, the
+dashboard is the inbox, and nothing about the app depends on it. Adding a scheduled
+function before the main site runs only gives you two things to debug at once.
 
 With `DIGEST_ENABLED` unset or `false`, no email is ever sent. When enabled, the digest
 goes out at most once per calendar day, and only if unread suggestions are waiting.
 
-## 5. Add all required environment variables
+## 5. Add the environment variables
 
-Copy `.env.example` to `.env.local` for local development, and add the same variables in
-Vercel under **Project Settings → Environment Variables**.
-
-Run `npm run check:deploy` once you have filled them in — it tells you what is
-still missing or still a placeholder before you find out from a deploy.
+Copy `.env.example` to `.env.local` for local development. In Render the same
+variables go under your service → **Environment** (you will add them in step 6,
+when the service exists).
 
 | Variable | Required | What it's for |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Public key; always constrained by RLS |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only; writes submissions and the rate-limit log |
-| `PRESIDENT_EMAILS` | yes | The two co-president addresses, comma separated |
-| `NEXT_PUBLIC_SITE_URL` | yes in prod | Your domain; used to build sign-in links |
+| `NEXT_PUBLIC_SITE_URL` | once you have a domain | Used to build sign-in links. Falls back to Render's own `RENDER_EXTERNAL_URL`, so you can leave it unset while testing on the temporary address |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | recommended | Turnstile widget key |
 | `TURNSTILE_SECRET_KEY` | recommended | Turnstile verification key |
 | `IP_HASH_SALT` | recommended | Salt for hashing IPs in the rate-limit log |
-| `DIGEST_ENABLED` | no | `true` turns the daily digest on. Default off |
+| `DIGEST_ENABLED` | no | Leave `false` for launch |
 | `RESEND_API_KEY` | no | Digest only |
-| `DIGEST_FROM_EMAIL` | no | Digest only; must be on a verified domain |
-| `CRON_SECRET` | no | Required if the digest is on; guards the cron endpoint |
+| `DIGEST_FROM_EMAIL` | no | Digest only |
+| `CRON_SECRET` | no | Required only if the digest is on |
+
+There is **no** `PRESIDENT_EMAILS` variable. The co-presidents live in Supabase
+(step 3), and nowhere else.
 
 For Turnstile keys: [Cloudflare dashboard → Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)
-→ **Add site**, choose the **Managed** widget, and add your domain plus `localhost`.
+→ **Add site**, choose the **Managed** widget, and add your Render address plus
+`localhost`.
 
 Run locally with:
 
@@ -271,30 +292,141 @@ npm install
 npm run dev
 ```
 
-## 6. Deploy to Vercel
+## 6. Deploy to Render
+
+A **Web Service**, not a Static Site. This app has route handlers, server actions,
+middleware and server-guarded pages; all of them need a running Node process.
+A static site would serve the landing page and nothing else would work.
+
+Render only runs the web server. **Do not create a Render database** — Supabase
+stays the database and the auth provider.
+
+### Create the service
 
 1. Push this repository to GitHub.
-2. At [vercel.com/new](https://vercel.com/new), import the repository. Vercel detects
-   Next.js; leave the build settings alone.
-3. Add every environment variable from step 5 **before** the first deploy, for the
-   Production, Preview and Development environments.
-4. Deploy. Vercel picks up `vercel.json` and registers the daily cron automatically.
-5. Set `NEXT_PUBLIC_SITE_URL` to your real domain once you have it, then redeploy —
-   sign-in links are built from it.
+2. At [dashboard.render.com](https://dashboard.render.com) → **New → Web
+   Service** → **Build and deploy from a Git repository** → connect GitHub and
+   pick this repository.
+3. Settings:
+
+   | Setting | Value |
+   |---|---|
+   | Language / runtime | **Node** |
+   | Branch | the branch you deploy from — **`main`** unless you have changed it |
+   | Build command | `npm ci && npm run build` |
+   | Start command | `npm start` |
+   | Health check path | `/api/health` |
+   | Instance type | **Starter** or above (see below) |
+
+   These are the project's real scripts — `npm start` runs `next start`, which
+   binds the `PORT` Render provides. Nothing needs overriding.
+
+4. **Node version.** Render reads `engines.node` from `package.json` (`>=20.9.0`).
+   To pin it exactly, add an environment variable `NODE_VERSION` = `22.11.0`.
+
+5. **Environment variables** — your service → **Environment** → add the ones
+   from step 5. Add them *before* the first deploy: the build runs a check that
+   fails if Supabase is unreachable or the co-presidents are not set up.
+
+   Leave `NEXT_PUBLIC_SITE_URL` unset for now. The app falls back to Render's
+   own `RENDER_EXTERNAL_URL`, which is your temporary address.
+
+6. **Auto-deploy.** Render defaults to deploying on every push to the branch you
+   chose. Confirm it under **Settings → Build & Deploy → Auto-Deploy = Yes**,
+   and that **Branch** is the one you actually merge into.
+
+7. Deploy. Render gives you a temporary address like
+   `https://suggestion-box-abc1.onrender.com`. Note it down.
+
+### A note on the instance type
+
+On the **Free** instance type Render spins the service down when idle, and the
+cold start can take longer than someone's patience after clicking a magic-link
+email — which looks exactly like broken authentication. **Starter** or above
+stays warm. If you do use Free, expect the first request after a quiet period
+to be slow, and warn your co-presidents.
+
+### Point Supabase at the Render address
+
+**Authentication → URL Configuration**:
+
+- **Site URL**: your `https://….onrender.com` address
+- **Redirect URLs**: add `https://….onrender.com/auth/callback`, and keep
+  `http://localhost:3000/auth/callback` for local work
+
+If you set Turnstile keys, add the `.onrender.com` hostname to the widget's
+allowed domains in the Cloudflare dashboard.
+
+### Health checking
+
+`/api/health` returns `{"status":"ok"}` and nothing else. Render polls it to
+decide whether a deploy went live and whether the instance is still healthy.
+
+It deliberately does **not** touch Supabase. A health check that talks to the
+database turns a brief Supabase blip into a failed deploy or a restart loop, and
+restarting the web server does nothing to fix a database.
+
+### Production logging
+
+Render captures everything the process writes to stdout and stderr — your
+service → **Logs**, with a filter box and a live tail.
+
+The app logs deliberately and quietly. Worth recognising:
+
+| Log line | Means |
+|---|---|
+| `[auth] roster lookup failed:` | Supabase was unreachable during a sign-in check |
+| `[auth] Refused a placeholder co-president address` | a placeholder is still in `authorized_presidents` |
+| `[suggestions] insert failed:` | a student's submission could not be saved |
+| `[rate-limit] lookup failed:` | the limiter could not check, so it refused — fails closed |
+| `[turnstile] TURNSTILE_SECRET_KEY is not set` | bot protection is off |
+| `[duplicates] rescan failed:` | a president's manual scan errored |
+
+No log line contains a student's name, a student's email, a co-president's
+address, or any key.
+
+### Changing a `NEXT_PUBLIC_*` value later
+
+`NEXT_PUBLIC_*` variables are compiled into the build, not read at run time.
+Changing one in Render's dashboard therefore needs a **new build** — **Manual
+Deploy → Deploy latest commit** — not just a restart. This matters in step 7,
+when `NEXT_PUBLIC_SITE_URL` changes to your custom domain.
+
+Everything else (`SUPABASE_SERVICE_ROLE_KEY`, `IP_HASH_SALT`, `CRON_SECRET`,
+`RENDER_EXTERNAL_URL`) is read at run time and takes effect on restart.
+
+### If the build fails
+
+- **Out of memory during `next build`** — the Free instance type has limited
+  build memory. Move to Starter or above.
+- **`npm ci` fails on a lockfile mismatch** — `package-lock.json` is out of step
+  with `package.json`. Run `npm install` locally and commit the updated lockfile.
+- **The deploy check stops the build** — read the message; it names what is
+  missing. It never prints anybody's address.
 
 ## 7. Connect your own custom domain
 
-1. Vercel → your project → **Settings → Domains → Add**.
+Only once step 9's tests pass on the `.onrender.com` address.
+
+1. Render → your service → **Settings → Custom Domains → Add Custom Domain**.
 2. Enter your domain, e.g. `suggestions.yourschool.org`.
-3. Add the DNS record Vercel shows you at your registrar:
-   - subdomain → a `CNAME` to `cname.vercel-dns.com`
-   - apex domain → an `A` record to `76.76.21.21`
-4. Wait for the certificate to issue (usually minutes).
-5. Then update, in this order:
-   - `NEXT_PUBLIC_SITE_URL` in Vercel → redeploy
-   - Supabase **Authentication → URL Configuration**: Site URL and the
-     `https://your-domain/auth/callback` redirect URL
-   - Cloudflare Turnstile: add the domain to your widget
+3. Add the DNS record Render shows you, at your registrar:
+   - subdomain → a `CNAME` to your `….onrender.com` address
+   - apex domain → the `A` record Render gives you
+4. Wait for Render to verify the domain and issue the certificate (usually
+   minutes). Render shows the status next to the domain.
+5. Then, **in this order**:
+   1. Render → **Environment** → set `NEXT_PUBLIC_SITE_URL` to
+      `https://your-domain` (no trailing slash).
+   2. **Manual Deploy → Deploy latest commit.** A restart is not enough:
+      `NEXT_PUBLIC_*` is compiled into the build.
+   3. Supabase → **Authentication → URL Configuration** → change **Site URL** to
+      the custom domain, and **add** `https://your-domain/auth/callback` to the
+      redirect URLs. Leave the `.onrender.com` callback in place if you still
+      want the temporary address to work.
+   4. Cloudflare Turnstile → add the custom domain to the widget.
+6. Sign in once on the custom domain to confirm the magic link arrives with the
+   right host in it.
 
 ## 8. Clear any test submissions
 
@@ -313,7 +445,8 @@ reading students' ideas.
 
 ## 9. Test a real student submission
 
-1. Open your live site in a private window.
+1. Open your live site in a private window — the `…onrender.com` address, not a
+   custom domain.
 2. Fill in a title, details, a category and the improvement reason. Leave the name and
    email blank, or tick **Submit without my name**.
 3. Submit. The form should fold into paper, drop into the box, and show
@@ -327,6 +460,10 @@ reading students' ideas.
    within a second or two.
 7. Submit four ideas in a row from the same device — the fourth should be refused with a
    "give it a little while" message. That's the rate limiter.
+8. Submit a second idea worded much like the first. In the dashboard both should carry a
+   **Possible duplicate (1)** badge, and opening either should show the other under
+   **Similar suggestions**. Try **Mark as related**, then **Not a duplicate**, then
+   **Show 1 dismissed match → Undo dismissal**.
 
 ## 10. Confirm that unauthorized people cannot enter the president panel
 
@@ -377,7 +514,9 @@ src/
 supabase/migrations/             Schema, policies, triggers, grants, president roster
 supabase/tests/                  Access-control checks to run against a dev database
 supabase/maintenance/            One-off operator scripts (clearing test data)
-scripts/check-deployment.mjs     Pre-build check: placeholders, missing keys, localhost
+scripts/check-deployment.mjs     Pre-build check: keys, site URL, and the roster
+render.yaml                      Optional Render Blueprint: the service, written down
+src/app/api/health/route.ts      Health check Render polls (no Supabase call)
 ```
 
 ## Commands
@@ -393,28 +532,32 @@ npm test              # unit tests (node:test, no extra dependencies)
 
 ### The deployment check
 
-`npm run build` runs `scripts/check-deployment.mjs` first, so it runs on Vercel
-too. It **fails the build** if the co-president addresses are still the
-placeholders the setup files ship with:
+`npm run build` runs `scripts/check-deployment.mjs` first, so it runs on Render
+too. Its main job is to confirm the two co-presidents actually exist in
+Supabase, because a site with nobody on the roster looks completely finished
+and has no way in:
 
 ```
-ERROR   PRESIDENT_EMAILS still contains placeholder addresses:
-        co-president-one@example.org, co-president-two@example.org
-        Replace them with the real co-president addresses, in PRESIDENT_EMAILS
-        and in the authorized_presidents table. Nobody can sign in to
-        /president until you do: these domains are reserved for documentation
-        and cannot receive the link.
+ERROR   No co-presidents are set up in Supabase.
+        Add the two of them with supabase/maintenance/add_presidents.sql.
+        Until you do, nobody can sign in to /president.
 ```
 
-That is the failure worth catching loudly, because the site would otherwise
-look completely finished and simply have no way in — `example.org` and friends
-are reserved by RFC 2606 and cannot receive the sign-in link.
+**It never prints a real address.** It queries the roster with the service-role
+key and judges it by count: a roster that looks wrong is reported as
+"Supabase lists 1 authorized presidents, not 2", and you look in your own SQL
+editor to see who that is. The only addresses it ever names are the
+placeholders from this repository, which are safe by definition. A test asserts
+this rather than trusting it.
 
-It also errors on missing Supabase keys and on a `NEXT_PUBLIC_SITE_URL` still
-pointing at localhost, and warns about a missing Turnstile key, a missing
-`IP_HASH_SALT`, a digest switched on without Resend, and a president list that
-is not exactly two addresses. A checkout with no environment at all is treated
-as a local build and passes quietly.
+It also errors on a missing `authorized_presidents` table (you have not run the
+migrations), a rejected service-role key, missing Supabase keys, and a
+`NEXT_PUBLIC_SITE_URL` pointing at localhost. It warns — without stopping the
+build — about a missing Turnstile key, a missing `IP_HASH_SALT`, a digest
+switched on without Resend, and a roster that is not exactly two people. If
+Supabase cannot be reached at all it warns rather than failing, so a network
+blip cannot block a deploy. A checkout with no environment is treated as a
+local build and passes quietly.
 
 Belt and braces: a placeholder address never authorizes anyone at runtime
 either, even if one is left in the `authorized_presidents` table.

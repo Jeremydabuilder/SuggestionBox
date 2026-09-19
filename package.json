@@ -2,15 +2,18 @@
   "name": "suggestion-box",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/check-deployment.mjs",
+    "prebuild": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-deployment.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
-    "check:deploy": "node scripts/check-deployment.mjs"
+    "check:deploy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-deployment.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

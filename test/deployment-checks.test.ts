@@ -2,14 +2,15 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   describeDeploymentProblems,
+  describeRosterProblems,
   findPlaceholderEmails,
   isPlaceholderEmail,
   looksUnconfigured,
   parseEmails,
+  type RosterLookup,
 } from "../src/lib/deployment-checks.ts";
 
 const ready = {
-  presidentEmails: "ada@westfield.school,ben@westfield.school",
   supabaseUrl: "https://abc.supabase.co",
   supabaseAnonKey: "anon",
   serviceRoleKey: "service",
@@ -56,29 +57,8 @@ describe("the deployment check", () => {
     assert.deepEqual(describeDeploymentProblems(ready), []);
   });
 
-  test("a placeholder address is an ERROR, not a warning", () => {
-    const problems = describeDeploymentProblems({
-      ...ready,
-      presidentEmails: "co-president-one@example.org,co-president-two@example.org",
-    });
-    const placeholder = problems.find((p) => p.message.includes("placeholder"));
-    assert.ok(placeholder, "expected a placeholder problem");
-    assert.equal(placeholder.level, "error");
-    assert.match(placeholder.message, /co-president-one@example\.org/);
-    assert.match(placeholder.fix, /authorized_presidents/);
-  });
-
-  test("one real and one placeholder address still errors", () => {
-    const problems = describeDeploymentProblems({
-      ...ready,
-      presidentEmails: "ada@westfield.school,co-president-two@example.org",
-    });
-    assert.ok(problems.some((p) => p.level === "error" && p.message.includes("placeholder")));
-  });
-
   test("errors are listed before warnings", () => {
     const problems = describeDeploymentProblems({
-      presidentEmails: "co-president-one@example.org",
       supabaseUrl: "https://abc.supabase.co",
       supabaseAnonKey: "anon",
     });
@@ -107,7 +87,7 @@ describe("the deployment check", () => {
 
   test("an empty checkout is a local build, not a broken deployment", () => {
     assert.ok(looksUnconfigured({}));
-    assert.ok(!looksUnconfigured({ presidentEmails: "ada@westfield.school" }));
+    assert.ok(!looksUnconfigured({ supabaseUrl: "https://abc.supabase.co" }));
   });
 
   test("email parsing tolerates spacing and case", () => {
@@ -115,5 +95,87 @@ describe("the deployment check", () => {
       "ada@school.org",
       "ben@school.org",
     ]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The roster in Supabase is the one list of co-presidents             */
+/* ------------------------------------------------------------------ */
+
+describe("checking the co-presidents in Supabase", () => {
+  test("two real addresses is a clean bill of health", () => {
+    assert.deepEqual(
+      describeRosterProblems({
+        status: "ok",
+        emails: ["ada@westfield.school", "ben@westfield.school"],
+      }),
+      [],
+    );
+  });
+
+  test("an empty roster is an error — nobody could sign in", () => {
+    const [problem] = describeRosterProblems({ status: "ok", emails: [] });
+    assert.equal(problem.level, "error");
+    assert.match(problem.message, /No co-presidents/);
+  });
+
+  test("placeholders left in the table are an error", () => {
+    const [problem] = describeRosterProblems({
+      status: "ok",
+      emails: ["co-president-one@example.org", "co-president-two@example.org"],
+    });
+    assert.equal(problem.level, "error");
+    assert.match(problem.message, /placeholder addresses/);
+  });
+
+  test("a missing table points at the migrations", () => {
+    const [problem] = describeRosterProblems({ status: "missing-table", detail: "HTTP 404" });
+    assert.equal(problem.level, "error");
+    assert.match(problem.fix, /supabase\/migrations/);
+  });
+
+  test("a rejected service-role key is an error", () => {
+    const [problem] = describeRosterProblems({ status: "unauthorized", detail: "HTTP 401" });
+    assert.equal(problem.level, "error");
+    assert.match(problem.fix, /SUPABASE_SERVICE_ROLE_KEY/);
+  });
+
+  test("being unable to reach Supabase only warns, so a blip cannot block a deploy", () => {
+    const [problem] = describeRosterProblems({ status: "unreachable", detail: "timed out" });
+    assert.equal(problem.level, "warning");
+  });
+
+  test("a roster that is not exactly two warns", () => {
+    const [problem] = describeRosterProblems({
+      status: "ok",
+      emails: ["ada@westfield.school"],
+    });
+    assert.equal(problem.level, "warning");
+    assert.match(problem.message, /1 authorized presidents/);
+  });
+
+  // The privacy guarantee, asserted rather than promised: whatever the
+  // roster looks like, no real address ends up in a build log.
+  test("no message or fix ever contains a real address", () => {
+    const real = ["ada@westfield.school", "ben@westfield.school", "cara@westfield.school"];
+    const lookups: RosterLookup[] = [
+      { status: "ok", emails: real },
+      { status: "ok", emails: real.slice(0, 1) },
+      { status: "ok", emails: [...real, "co-president-one@example.org"] },
+      { status: "unauthorized", detail: "HTTP 401" },
+      { status: "missing-table", detail: "HTTP 404" },
+      { status: "unreachable", detail: "timed out" },
+    ];
+    for (const lookup of lookups) {
+      for (const problem of describeRosterProblems(lookup)) {
+        const text = `${problem.message} ${problem.fix}`;
+        for (const address of real) {
+          assert.ok(
+            !text.includes(address),
+            `leaked ${address} in: ${text}`,
+          );
+        }
+      }
+    }
   });
 });

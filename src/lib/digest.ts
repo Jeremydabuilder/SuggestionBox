@@ -8,11 +8,8 @@ export type DigestOutcome =
   | { sent: false; reason: string }
   | { sent: true; unreadCount: number; recipients: number };
 
-/** Recipients: the env allowlist if present, otherwise the roster table. */
+/** Recipients come from the roster table — the one list of co-presidents. */
 async function digestRecipients(): Promise<string[]> {
-  const fromEnv = serverEnv.presidentEmails;
-  if (fromEnv.length > 0) return fromEnv;
-
   const service = createSupabaseServiceClient();
   const { data, error } = await service.from("authorized_presidents").select("email");
   if (error) {
