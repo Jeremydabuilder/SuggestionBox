@@ -46,6 +46,37 @@ export const STATUS_STYLES: Record<Status, string> = {
   archived: "bg-navy/8 text-navy/70 border-navy/20",
 };
 
+export const MATCH_STATES = ["suggested", "confirmed", "dismissed"] as const;
+export type MatchState = (typeof MATCH_STATES)[number];
+
+export interface SimilarityParts {
+  score: number;
+  title: number;
+  body: number;
+  keyword: number;
+  sameCategory: boolean;
+  sharedKeywords: string[];
+}
+
+/**
+ * A possible or confirmed relationship between two suggestions. Advisory
+ * only: it never changes either suggestion.
+ */
+export interface SuggestionMatch {
+  id: string;
+  /** Always the lower of the two ids — see canonicalPair(). */
+  suggestion_id: string;
+  match_id: string;
+  score: number;
+  breakdown: SimilarityParts | Record<string, never>;
+  method: string;
+  state: MatchState;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Suggestion {
   id: string;
   title: string;
@@ -60,6 +91,12 @@ export interface Suggestion {
   read_at: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * The suggestion this one is filed under, when presidents have decided
+   * several submissions are the same idea. Null means it is not a duplicate
+   * of anything, or is itself the one being tracked.
+   */
+  primary_suggestion_id: string | null;
 }
 
 export interface InternalNote {

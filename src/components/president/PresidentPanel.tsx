@@ -15,7 +15,10 @@ import {
   type Category,
   type Status,
   type Suggestion,
+  type SuggestionMatch,
 } from "@/lib/types";
+import { matchCountFor, relatedGroupSize } from "@/lib/duplicates";
+import { rescanDuplicates } from "@/app/president/actions";
 
 type SortOrder = "newest" | "oldest";
 type ReadFilter = "all" | "unread" | "read";
@@ -24,9 +27,11 @@ const POLL_INTERVAL_MS = 45_000;
 
 export default function PresidentPanel({
   suggestions,
+  matches,
   currentEmail,
 }: {
   suggestions: Suggestion[];
+  matches: SuggestionMatch[];
   currentEmail: string;
 }) {
   const router = useRouter();
@@ -38,6 +43,9 @@ export default function PresidentPanel({
   const [readFilter, setReadFilter] = useState<ReadFilter>("all");
   const [sort, setSort] = useState<SortOrder>("newest");
   const [showArchived, setShowArchived] = useState(false);
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
+  const [rescanNote, setRescanNote] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [arrivedCount, setArrivedCount] = useState(0);
   const [detailSignal, setDetailSignal] = useState(0);
@@ -78,6 +86,14 @@ export default function PresidentPanel({
         { event: "*", schema: "public", table: "status_history" },
         () => setDetailSignal((n) => n + 1),
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "suggestion_matches" },
+        () => {
+          setDetailSignal((n) => n + 1);
+          refresh();
+        },
+      )
       .subscribe((state: string) => setLive(state === "SUBSCRIBED"));
 
     return () => {
@@ -103,6 +119,16 @@ export default function PresidentPanel({
     if (fresh > 0) setArrivedCount((n) => Math.max(n, fresh));
   }, [suggestions]);
 
+  /* ---- duplicate counts, by suggestion -------------------------------- */
+  const duplicateCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const suggestion of suggestions) {
+      const count = matchCountFor(suggestion.id, matches);
+      if (count > 0) counts.set(suggestion.id, count);
+    }
+    return counts;
+  }, [suggestions, matches]);
+
   /* ---- counters ------------------------------------------------------ */
   const stats = useMemo(() => {
     let unread = 0;
@@ -115,8 +141,15 @@ export default function PresidentPanel({
       if (s.status === "discussing") discussing += 1;
       if (s.status === "completed") completed += 1;
     }
-    return { total: suggestions.length, unread, discussing, completed, archived };
-  }, [suggestions]);
+    return {
+      total: suggestions.length,
+      unread,
+      discussing,
+      completed,
+      archived,
+      withDuplicates: duplicateCounts.size,
+    };
+  }, [suggestions, duplicateCounts]);
 
   /* ---- filtering, search and sorting -------------------------------- */
   const visible = useMemo(() => {
@@ -130,6 +163,7 @@ export default function PresidentPanel({
       if (category !== "all" && s.category !== category) return false;
       if (readFilter === "unread" && s.is_read) return false;
       if (readFilter === "read" && !s.is_read) return false;
+      if (duplicatesOnly && !duplicateCounts.has(s.id)) return false;
       if (needle) {
         const haystack = [
           s.title,
@@ -150,7 +184,7 @@ export default function PresidentPanel({
       const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       return sort === "newest" ? -diff : diff;
     });
-  }, [suggestions, query, category, status, readFilter, sort, showArchived]);
+  }, [suggestions, query, category, status, readFilter, sort, showArchived, duplicatesOnly, duplicateCounts]);
 
   const selected = useMemo(
     () => suggestions.find((s) => s.id === selectedId) ?? null,
@@ -168,7 +202,8 @@ export default function PresidentPanel({
     category !== "all" ||
     status !== "all" ||
     readFilter !== "all" ||
-    showArchived;
+    showArchived ||
+    duplicatesOnly;
 
   function clearFilters() {
     setQuery("");
@@ -176,6 +211,22 @@ export default function PresidentPanel({
     setStatus("all");
     setReadFilter("all");
     setShowArchived(false);
+    setDuplicatesOnly(false);
+  }
+
+  async function runRescan() {
+    setRescanning(true);
+    setRescanNote(null);
+    const result = await rescanDuplicates();
+    setRescanning(false);
+    setRescanNote(
+      result.ok
+        ? result.data.recorded === 0
+          ? "No new possible duplicates found."
+          : `Found ${result.data.recorded} possible duplicate pair${result.data.recorded === 1 ? "" : "s"}.`
+        : result.error,
+    );
+    refresh();
   }
 
   return (
@@ -330,9 +381,27 @@ export default function PresidentPanel({
               <ArchiveIcon /> Include archived ({stats.archived})
             </span>
           </label>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] font-medium text-navy">
+            <input
+              type="checkbox"
+              checked={duplicatesOnly}
+              onChange={(e) => setDuplicatesOnly(e.target.checked)}
+              className="h-4 w-4 accent-[#e24e1b]"
+            />
+            <span>Possible duplicates ({stats.withDuplicates})</span>
+          </label>
           <span className="text-[13px] text-navy-soft">
             Showing {visible.length} of {stats.total}
           </span>
+          <button
+            type="button"
+            onClick={runRescan}
+            disabled={rescanning}
+            className="text-[13px] font-medium text-navy-soft underline underline-offset-2 hover:text-navy disabled:opacity-60"
+          >
+            {rescanning ? "Scanning…" : "Rescan for duplicates"}
+          </button>
+          {rescanNote && <span className="text-[13px] text-accent-ink">{rescanNote}</span>}
           {filtersActive && (
             <button
               type="button"
@@ -365,6 +434,8 @@ export default function PresidentPanel({
                 <li key={suggestion.id}>
                   <SuggestionCard
                     suggestion={suggestion}
+                    duplicateCount={duplicateCounts.get(suggestion.id) ?? 0}
+                    relatedCount={relatedGroupSize(suggestion, suggestions)}
                     active={suggestion.id === selectedId}
                     onOpen={() => {
                       setSelectedId(suggestion.id);
@@ -382,8 +453,11 @@ export default function PresidentPanel({
             <SuggestionDetail
               key={selected.id}
               suggestion={selected}
+              allSuggestions={suggestions}
+              matches={matches}
               currentEmail={currentEmail}
               refreshSignal={detailSignal}
+              onOpenSuggestion={setSelectedId}
               onClose={() => setSelectedId(null)}
             />
           )}
@@ -441,10 +515,14 @@ function Select({
 
 function SuggestionCard({
   suggestion,
+  duplicateCount,
+  relatedCount,
   active,
   onOpen,
 }: {
   suggestion: Suggestion;
+  duplicateCount: number;
+  relatedCount: number;
   active: boolean;
   onOpen: () => void;
 }) {
@@ -485,6 +563,22 @@ function SuggestionCard({
             <span className="rounded-full border border-rule px-2 py-0.5 font-medium">
               {CATEGORY_LABELS[suggestion.category]}
             </span>
+            {duplicateCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900">
+                Possible duplicate
+                <span className="tabular-nums">({duplicateCount})</span>
+              </span>
+            )}
+            {suggestion.primary_suggestion_id && (
+              <span className="rounded-full border border-navy/20 bg-navy/5 px-2 py-0.5 font-medium">
+                Filed under another idea
+              </span>
+            )}
+            {!suggestion.primary_suggestion_id && relatedCount > 1 && (
+              <span className="rounded-full border border-navy/25 bg-navy/5 px-2 py-0.5 font-semibold text-navy">
+                {relatedCount} related submissions
+              </span>
+            )}
             <span>
               <RelativeTime iso={suggestion.created_at} />
             </span>

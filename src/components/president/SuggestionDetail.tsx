@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { motion } from "framer-motion";
 import {
   CATEGORY_LABELS,
@@ -10,13 +10,25 @@ import {
   type StatusHistoryEntry,
   type Status,
   type Suggestion,
+  type SuggestionMatch,
 } from "@/lib/types";
+import {
+  LEVEL_LABEL,
+  duplicatesOf,
+  matchesFor,
+  otherIdIn,
+  relatedGroupSize,
+  similarityLevel,
+} from "@/lib/duplicates";
 import { LIMITS } from "@/lib/validation";
 import {
   addNote,
+  confirmMatch,
   deleteNote,
+  dismissMatch,
   loadDetail,
   markRead,
+  setPrimarySuggestion,
   setStatus,
 } from "@/app/president/actions";
 import {
@@ -29,13 +41,19 @@ import {
 
 export default function SuggestionDetail({
   suggestion,
+  allSuggestions,
+  matches,
   currentEmail,
   onClose,
+  onOpenSuggestion,
   refreshSignal,
 }: {
   suggestion: Suggestion;
+  allSuggestions: Suggestion[];
+  matches: SuggestionMatch[];
   currentEmail: string;
   onClose: () => void;
+  onOpenSuggestion: (id: string) => void;
   /** Bumped by the panel when realtime reports a change. */
   refreshSignal: number;
 }) {
@@ -269,6 +287,17 @@ export default function SuggestionDetail({
           </div>
         </section>
 
+        {/* possible duplicates */}
+        <SimilarSuggestions
+          suggestion={suggestion}
+          allSuggestions={allSuggestions}
+          matches={matches}
+          pending={pending}
+          onOpenSuggestion={onOpenSuggestion}
+          onError={setError}
+          startTransition={startTransition}
+        />
+
         {/* shared internal notes */}
         <section className="border-b border-rule py-5">
           <h3 className="text-[11.5px] font-semibold tracking-wide text-navy-soft uppercase">
@@ -365,5 +394,209 @@ export default function SuggestionDetail({
         </section>
       </div>
     </motion.aside>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Similar suggestions                                                 */
+/* ------------------------------------------------------------------ */
+/*
+ * Advisory only. Every control here records a decision about the
+ * RELATIONSHIP between two suggestions. Nothing deletes, archives, merges
+ * or rejects a submission, and both students' words and contact details
+ * survive every action on this panel untouched.
+ */
+
+function SimilarSuggestions({
+  suggestion,
+  allSuggestions,
+  matches,
+  pending,
+  onOpenSuggestion,
+  onError,
+  startTransition,
+}: {
+  suggestion: Suggestion;
+  allSuggestions: Suggestion[];
+  matches: SuggestionMatch[];
+  pending: boolean;
+  onOpenSuggestion: (id: string) => void;
+  onError: (message: string | null) => void;
+  startTransition: (fn: () => void) => void;
+}) {
+  const byId = useMemo(
+    () => new Map(allSuggestions.map((s) => [s.id, s])),
+    [allSuggestions],
+  );
+
+  const related = useMemo(() => {
+    return matchesFor(suggestion.id, matches)
+      .filter((m) => m.state !== "dismissed")
+      .map((match) => ({ match, other: byId.get(otherIdIn(match, suggestion.id)) }))
+      .filter((row): row is { match: SuggestionMatch; other: Suggestion } => Boolean(row.other))
+      .sort((a, b) => b.match.score - a.match.score);
+  }, [matches, suggestion.id, byId]);
+
+  const groupSize = relatedGroupSize(suggestion, allSuggestions);
+  const filedUnder = suggestion.primary_suggestion_id
+    ? byId.get(suggestion.primary_suggestion_id)
+    : null;
+  const ownDuplicates = duplicatesOf(suggestion.id, allSuggestions);
+
+  function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+    startTransition(async () => {
+      const result = await action();
+      if (!result.ok) onError(result.error ?? "That didn't work. Try again.");
+      else onError(null);
+    });
+  }
+
+  if (related.length === 0 && !filedUnder && ownDuplicates.length === 0) return null;
+
+  return (
+    <section className="border-b border-rule py-5">
+      <h3 className="text-[11.5px] font-semibold tracking-wide text-navy-soft uppercase">
+        Similar suggestions
+      </h3>
+      <p className="mt-1 text-[12.5px] text-navy-soft">
+        Found by comparing wording, keywords and category. Nothing is merged or removed —
+        every submission is kept exactly as it was sent.
+      </p>
+
+      {/* how many submissions are behind the same idea */}
+      {groupSize > 1 && (
+        <p className="mt-3 rounded-[10px] border border-navy/20 bg-navy/5 px-3 py-2 text-[13px] font-semibold text-navy">
+          {groupSize} submissions are filed as the same idea.
+        </p>
+      )}
+
+      {filedUnder && (
+        <div className="mt-3 rounded-[10px] border border-rule bg-paper-deep/45 px-3.5 py-2.5">
+          <p className="text-[12.5px] text-navy-soft">Filed under</p>
+          <p className="mt-0.5 text-[14px] font-semibold text-navy">{filedUnder.title}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-quiet px-2.5 py-1 text-[12.5px]"
+              onClick={() => onOpenSuggestion(filedUnder.id)}
+            >
+              Open it
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              className="btn-quiet px-2.5 py-1 text-[12.5px]"
+              onClick={() => run(() => setPrimarySuggestion(suggestion.id, null))}
+            >
+              Unlink
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!filedUnder && ownDuplicates.length > 0 && (
+        <p className="mt-3 text-[13px] font-medium text-navy">
+          This is the primary suggestion for {ownDuplicates.length} other submission
+          {ownDuplicates.length === 1 ? "" : "s"}.
+        </p>
+      )}
+
+      <ul className="mt-3 space-y-2.5">
+        {related.map(({ match, other }) => {
+          const level = similarityLevel(match.score);
+          const confirmed = match.state === "confirmed";
+          const isFiledHere = other.primary_suggestion_id === suggestion.id;
+          return (
+            <li
+              key={match.id}
+              className={`rounded-[10px] border px-3.5 py-3 ${
+                confirmed ? "border-navy/30 bg-navy/[0.04]" : "border-rule bg-white"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 text-[14px] leading-snug font-semibold text-navy">
+                  {other.title}
+                </p>
+                <span
+                  title={`Similarity ${Math.round(match.score * 100)}%`}
+                  className={`shrink-0 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold whitespace-nowrap ${
+                    level === "strong"
+                      ? "border-amber-400 bg-amber-100 text-amber-900"
+                      : level === "moderate"
+                        ? "border-amber-300 bg-amber-50 text-amber-900"
+                        : "border-rule bg-paper-deep/60 text-navy-soft"
+                  }`}
+                >
+                  {LEVEL_LABEL[level]} · {Math.round(match.score * 100)}%
+                </span>
+              </div>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-navy-soft">
+                <span className="rounded-full border border-rule px-2 py-0.5 font-medium">
+                  {CATEGORY_LABELS[other.category]}
+                </span>
+                <StatusChip status={other.status} />
+                <LocalTime iso={other.created_at} />
+                {confirmed && (
+                  <span className="font-semibold text-navy">Marked related</span>
+                )}
+              </div>
+
+              {Array.isArray(match.breakdown?.sharedKeywords) &&
+                match.breakdown.sharedKeywords.length > 0 && (
+                  <p className="mt-1.5 text-[12px] text-navy-soft">
+                    Shared: {match.breakdown.sharedKeywords.slice(0, 6).join(", ")}
+                  </p>
+                )}
+
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-quiet px-2.5 py-1 text-[12.5px]"
+                  onClick={() => onOpenSuggestion(other.id)}
+                >
+                  Open
+                </button>
+                {!confirmed && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="btn-quiet px-2.5 py-1 text-[12.5px]"
+                    onClick={() => run(() => confirmMatch(match.id))}
+                  >
+                    Mark as related
+                  </button>
+                )}
+                {!isFiledHere && (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="btn-quiet px-2.5 py-1 text-[12.5px]"
+                    onClick={() =>
+                      run(async () => {
+                        const linked = await setPrimarySuggestion(other.id, suggestion.id);
+                        if (!linked.ok) return linked;
+                        return confirmMatch(match.id);
+                      })
+                    }
+                  >
+                    Make this one primary
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={pending}
+                  className="btn-quiet px-2.5 py-1 text-[12.5px]"
+                  onClick={() => run(() => dismissMatch(match.id))}
+                >
+                  Not a duplicate
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

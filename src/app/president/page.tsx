@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import PresidentPanel from "@/components/president/PresidentPanel";
 import { getPresidentSession } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Suggestion } from "@/lib/types";
+import type { Suggestion, SuggestionMatch } from "@/lib/types";
 
 // The panel is always rendered fresh for the signed-in president.
 export const dynamic = "force-dynamic";
@@ -14,11 +14,20 @@ export default async function PresidentPage() {
   if (!session) redirect("/president/login");
 
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("suggestions")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  const [{ data, error }, matchResult] = await Promise.all([
+    supabase.from("suggestions").select("*").order("created_at", { ascending: false }).limit(2000),
+    // Dismissed pairs are deliberately left behind: a president has already
+    // said they are not duplicates, so they never come back to the surface.
+    supabase
+      .from("suggestion_matches")
+      .select("*")
+      .neq("state", "dismissed")
+      .order("score", { ascending: false }),
+  ]);
+
+  if (matchResult.error) {
+    console.error("[president] could not load duplicate matches:", matchResult.error.message);
+  }
 
   if (error) {
     return (
@@ -42,6 +51,11 @@ export default async function PresidentPage() {
     <main className="min-h-dvh">
       <PresidentPanel
         suggestions={(data ?? []) as Suggestion[]}
+        matches={((matchResult.data ?? []) as SuggestionMatch[]).map((m) => ({
+          ...m,
+          // numeric arrives as a string from some drivers; the UI wants a number.
+          score: Number(m.score),
+        }))}
         currentEmail={session.email}
       />
     </main>

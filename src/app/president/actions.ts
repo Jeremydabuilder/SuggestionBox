@@ -5,7 +5,13 @@ import { getPresidentSession, isAuthorizedEmail } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { sanitizeText } from "@/lib/sanitize";
 import { noteSchema, fieldErrors, LIMITS } from "@/lib/validation";
-import { STATUS_VALUES, type InternalNote, type Status, type StatusHistoryEntry } from "@/lib/types";
+import {
+  STATUS_VALUES,
+  type InternalNote,
+  type Status,
+  type StatusHistoryEntry,
+} from "@/lib/types";
+import { rescanAllDuplicates } from "@/lib/duplicates/service";
 import { serverEnv } from "@/lib/env";
 
 export type ActionResult<T = undefined> =
@@ -145,6 +151,115 @@ export async function deleteNote(noteId: string): Promise<ActionResult> {
 export interface SuggestionDetailData {
   notes: InternalNote[];
   history: StatusHistoryEntry[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Possible duplicates                                                 */
+/* ------------------------------------------------------------------ */
+/*
+ * Every action here records a decision about a RELATIONSHIP. None of them
+ * deletes, archives, merges or rejects a suggestion: both submissions, and
+ * whatever the students put their names to, stay exactly as they arrived.
+ */
+
+async function decideMatch(
+  matchId: string,
+  state: "confirmed" | "dismissed",
+): Promise<ActionResult> {
+  const session = await getPresidentSession();
+  if (!session) return fail("Your session has expired. Sign in again.");
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("suggestion_matches")
+    .update({ state, decided_by: session.email, decided_at: new Date().toISOString() })
+    .eq("id", matchId);
+
+  if (error) return fail(error.message);
+  revalidatePath("/president");
+  return { ok: true };
+}
+
+/** "Yes, these two are the same idea." Both suggestions are left intact. */
+export async function confirmMatch(matchId: string): Promise<ActionResult> {
+  return decideMatch(matchId, "confirmed");
+}
+
+/**
+ * "No, these are different." The row is kept rather than deleted, so the
+ * detector knows not to raise the same pair again on the next scan.
+ */
+export async function dismissMatch(matchId: string): Promise<ActionResult> {
+  return decideMatch(matchId, "dismissed");
+}
+
+/**
+ * File one suggestion under another as the idea the presidents are
+ * tracking. Pass null for primaryId to unlink.
+ *
+ * This only sets a pointer. The duplicate keeps its own text, status,
+ * history, notes and submitter details, and still appears in the inbox.
+ */
+export async function setPrimarySuggestion(
+  suggestionId: string,
+  primaryId: string | null,
+): Promise<ActionResult> {
+  const session = await getPresidentSession();
+  if (!session) return fail("Your session has expired. Sign in again.");
+  if (primaryId === suggestionId) return fail("A suggestion cannot be filed under itself.");
+
+  const supabase = await createSupabaseServerClient();
+
+  let target = primaryId;
+  if (target) {
+    // Keep groups one level deep: if the chosen suggestion is itself filed
+    // under another, file this one under that same one.
+    const { data: chosen, error: chosenError } = await supabase
+      .from("suggestions")
+      .select("id, primary_suggestion_id")
+      .eq("id", target)
+      .single();
+    if (chosenError || !chosen) return fail(chosenError?.message ?? "That suggestion is gone.");
+    if (chosen.primary_suggestion_id && chosen.primary_suggestion_id !== suggestionId) {
+      target = chosen.primary_suggestion_id as string;
+    }
+    if (target === suggestionId) return fail("A suggestion cannot be filed under itself.");
+
+    // Anything already filed under THIS suggestion moves with it, so no
+    // group is ever orphaned by the change.
+    const { error: reparentError } = await supabase
+      .from("suggestions")
+      .update({ primary_suggestion_id: target })
+      .eq("primary_suggestion_id", suggestionId);
+    if (reparentError) return fail(reparentError.message);
+  }
+
+  const { error } = await supabase
+    .from("suggestions")
+    .update({ primary_suggestion_id: target })
+    .eq("id", suggestionId);
+
+  if (error) return fail(error.message);
+  revalidatePath("/president");
+  return { ok: true };
+}
+
+/**
+ * Re-run detection across the active suggestions. Needed for suggestions
+ * that predate the feature. Confirmed and dismissed pairs are untouched.
+ */
+export async function rescanDuplicates(): Promise<ActionResult<{ recorded: number }>> {
+  const session = await getPresidentSession();
+  if (!session) return fail("Your session has expired. Sign in again.");
+
+  try {
+    const result = await rescanAllDuplicates();
+    revalidatePath("/president");
+    return { ok: true, data: { recorded: result.recorded } };
+  } catch (error) {
+    console.error("[duplicates] rescan failed:", error);
+    return fail("The scan couldn't finish. Try again in a moment.");
+  }
 }
 
 export async function loadDetail(

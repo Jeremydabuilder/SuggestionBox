@@ -4,6 +4,7 @@ import { sanitizeLine, sanitizeText } from "@/lib/sanitize";
 import { checkRateLimit, clientIpFrom, hashIp, recordSubmission } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/turnstile";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
+import { detectDuplicatesFor } from "@/lib/duplicates/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,6 +110,18 @@ export async function POST(request: Request) {
   }
 
   await recordSubmission(ipHash);
+
+  // Look for possible duplicates and note them for the presidents.
+  //
+  // This is advisory and must never affect the student: it cannot change
+  // what was saved, and if it fails the submission still succeeded, so the
+  // error is logged and swallowed rather than surfaced. A president can
+  // always re-run the scan from the dashboard.
+  try {
+    await detectDuplicatesFor(data.id);
+  } catch (duplicateError) {
+    console.error("[suggestions] duplicate scan failed:", duplicateError);
+  }
 
   // No email is sent here by design: the president dashboard is the inbox.
   return NextResponse.json({ id: data.id, createdAt: data.created_at }, { status: 201 });

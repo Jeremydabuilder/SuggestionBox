@@ -44,6 +44,110 @@ data, updated live over Supabase Realtime with a 45-second polling fallback.
 ### Statuses
 New · Reviewing · Discussing · Approved · In Progress · Completed · Declined · Archived
 
+### Duplicate detection
+When several students send in the same idea, the dashboard says so. Matches are
+suggested, never acted on: see [How duplicate detection works](#how-duplicate-detection-works).
+
+---
+
+## How duplicate detection works
+
+Students often have the same idea in the same week. The dashboard flags likely
+repeats so the presidents can see how much support an idea really has — and it
+stops there. **Nothing is ever deleted, archived, merged or rejected
+automatically.** Every submission is kept exactly as it was sent, including the
+name and email of whoever sent it. A president makes every decision.
+
+### How a match is found
+
+No AI service and no API key. The comparison is local, deterministic and free,
+in `src/lib/duplicates/similarity.ts`. For each pair it looks at:
+
+| Signal | Weight | What it does |
+|---|---|---|
+| Title similarity | 50% | Word overlap plus character overlap, so case, punctuation and a typo don't matter |
+| Description + reason | 30% | Word overlap across the body of both suggestions |
+| Shared keywords | 20% | How much of the smaller suggestion's vocabulary is shared |
+| Same category | ×0.75 if not | A mismatch lowers the score rather than vetoing the pair — the same idea does get filed under two categories |
+
+Text is lowercased, stripped of accents and punctuation, and lightly stemmed, so
+"Longer lunch period" and "longer lunch periods!!" are the same words.
+
+**Common words are removed first.** Almost every suggestion contains *school*,
+*students*, *better*, *more*, *please*, *idea* and *suggestion*, so those words
+say nothing about whether two suggestions match — leaving them in is exactly
+what produces confident nonsense. The list is in
+`src/lib/duplicates/stop-words.ts`; add to it if a word starts showing up in
+every match.
+
+On top of that, a pair has to share **at least two meaningful words**, and if
+none of them appear in either title it needs **four**. Two long descriptions
+that happen to share a couple of incidental words never get scored.
+
+A pair is shown at **0.62** and above, labelled *Possible match* (0.62),
+*Likely match* (0.70) or *Strong match* (0.78). Every stored score also keeps
+the parts it was made of, so you can see why a pair was flagged.
+
+### When it runs
+
+- **On submission.** Every new suggestion is compared with the active ones
+  already in the box. It runs after the row is saved and can never affect the
+  student: if it fails, the submission still succeeded and the error is only
+  logged.
+- **On demand.** **Rescan for duplicates** in the dashboard toolbar re-compares
+  everything. Use it for suggestions that predate this feature. Decisions
+  already made are never overwritten by a scan.
+
+Archived suggestions are not candidates — a president has already filed them
+away, and resurfacing them would undo that.
+
+### What presidents can do
+
+On a card in the list:
+
+- a **Possible duplicate (n)** badge, with the number of matches
+- **n related submissions** once several are filed as one idea
+- a **Possible duplicates** filter in the toolbar, with a count
+
+In **Similar suggestions** inside a suggestion, each match shows the other
+suggestion's title, category, status, submission date, a similarity level and
+percentage, and the words the two share. From there:
+
+| Action | What it does |
+|---|---|
+| **Open** | Jumps to the other suggestion |
+| **Mark as related** | Confirms the two are the same idea. Both are left untouched |
+| **Make this one primary** | Files the other suggestion under this one, so the idea is tracked in one place |
+| **Not a duplicate** | Dismisses the match. The row is *kept*, not deleted, so the same pair is never raised again |
+| **Unlink** | Removes the link. Both suggestions carry on separately |
+
+Filing one suggestion under another only sets a pointer. The duplicate keeps its
+own text, status, history, notes and submitter details, and still appears in the
+inbox on its own.
+
+### Adding semantic matching later
+
+The database, the API route and the dashboard all talk to the
+`SimilarityStrategy` interface, and every stored score records the `method` that
+produced it (`lexical-v1` today). To add embeddings, write a second strategy
+with the same interface and point `defaultStrategy` at it. Old scores stay
+readable because each row says how it was computed, and no dashboard code has to
+change.
+
+### Tables
+
+`suggestion_matches` holds one row per pair — always with the lower id first, so
+one relationship is one row — with the score, its breakdown, the method, the
+state (`suggested` / `confirmed` / `dismissed`), who decided and when.
+`suggestions.primary_suggestion_id` points a duplicate at the suggestion the
+idea is being tracked under.
+
+RLS is unchanged in shape and extended the same way: **students have no
+privileges on duplicate data at all** — they cannot read matches, create them,
+or see which suggestions are linked. Presidents can read, record and decide.
+Nobody can DELETE a match row, which is what guarantees a dismissed pair stays
+dismissed.
+
 ---
 
 ## Security
@@ -58,6 +162,7 @@ New · Reviewing · Discussing · Approved · In Progress · Completed · Declin
 | President access | `is_president()` checks the signed-in JWT's email against `authorized_presidents`; only then do the select/update policies pass |
 | Note integrity | A note can only be written under the author's own signed-in address, and only its author can delete it |
 | Route protection | `/president` is gated on the server and redirects before rendering. The URL grants nothing |
+| Duplicate data | Students have no privileges on `suggestion_matches` and cannot read `primary_suggestion_id`. Nobody can delete a match, so a dismissal cannot be undone by a later scan |
 | Secrets | The service-role key and all other private values are server-only; nothing private reaches the browser |
 
 Deleting a suggestion is not possible from any client — archive instead.
@@ -247,4 +352,23 @@ npm run dev        # local development
 npm run build      # production build
 npm run typecheck  # TypeScript, no emit
 npm run lint       # ESLint
+npm test           # unit tests (node:test, no extra dependencies)
 ```
+
+### Tests
+
+`npm test` covers the duplicate-detection logic: near-identical titles, the same
+wording in different case and punctuation, clearly unrelated suggestions,
+similar titles in different categories, the common-word guard, pair ordering,
+dismissed matches not being counted, confirmed links holding, and no suggestion
+being removed by any of it.
+
+Access control and the "a dismissal is permanent" guarantee are database
+behaviour, so they are tested against a real Postgres:
+
+```bash
+psql "$DATABASE_URL" -f supabase/tests/duplicates_rls.sql
+```
+
+It prints PASS/FAIL per check and rolls back, leaving no data behind. Run it
+against a development database, not production.
