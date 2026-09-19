@@ -1,0 +1,75 @@
+/**
+ * Server-side environment access.
+ *
+ * Nothing in this file may be imported from a Client Component — the only
+ * values safe for the browser are the two NEXT_PUBLIC_* ones re-exported at
+ * the bottom, which Next.js inlines at build time.
+ */
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `Missing required environment variable ${name}. See README.md for setup.`,
+    );
+  }
+  return value;
+}
+
+function optional(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.length > 0 ? value : undefined;
+}
+
+export const serverEnv = {
+  get supabaseUrl() {
+    return required("NEXT_PUBLIC_SUPABASE_URL");
+  },
+  get supabaseAnonKey() {
+    return required("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  },
+  get supabaseServiceRoleKey() {
+    return required("SUPABASE_SERVICE_ROLE_KEY");
+  },
+  /** The authorized co-president addresses, lowercased. */
+  get presidentEmails(): string[] {
+    return (process.env.PRESIDENT_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+  },
+  get siteUrl() {
+    const explicit = optional("NEXT_PUBLIC_SITE_URL");
+    if (explicit) return explicit.replace(/\/$/, "");
+    const vercel = optional("VERCEL_PROJECT_PRODUCTION_URL") ?? optional("VERCEL_URL");
+    if (vercel) return `https://${vercel}`;
+    return "http://localhost:3000";
+  },
+  get turnstileSecretKey() {
+    return optional("TURNSTILE_SECRET_KEY");
+  },
+  get resendApiKey() {
+    return optional("RESEND_API_KEY");
+  },
+  get digestFromEmail() {
+    return optional("DIGEST_FROM_EMAIL");
+  },
+  /** Daily digest is OFF unless explicitly switched on. */
+  get digestEnabled() {
+    return (process.env.DIGEST_ENABLED ?? "").toLowerCase() === "true";
+  },
+  get cronSecret() {
+    return optional("CRON_SECRET");
+  },
+  /** Salt for hashing IP addresses in the rate-limit log. */
+  get ipHashSalt() {
+    return optional("IP_HASH_SALT") ?? "suggestion-box-default-salt";
+  },
+} as const;
+
+/** Safe for the browser — inlined by Next.js at build time. */
+export const publicEnv = {
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+  turnstileSiteKey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "",
+};
