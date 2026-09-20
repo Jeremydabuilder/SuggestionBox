@@ -1,12 +1,16 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  classifyRosterFailure,
+  diagnosticLines,
   describeDeploymentProblems,
   describeRosterProblems,
   findPlaceholderEmails,
   isPlaceholderEmail,
   looksUnconfigured,
   parseEmails,
+  parseSupabaseErrorBody,
+  supabaseHostname,
   type RosterLookup,
 } from "../src/lib/deployment-checks.ts";
 
@@ -129,19 +133,28 @@ describe("checking the co-presidents in Supabase", () => {
   });
 
   test("a missing table points at the migrations", () => {
-    const [problem] = describeRosterProblems({ status: "missing-table", detail: "HTTP 404" });
+    const [problem] = describeRosterProblems({
+      status: "missing-table",
+      diagnostic: { httpStatus: 404, code: "PGRST205" },
+    });
     assert.equal(problem.level, "error");
     assert.match(problem.fix, /supabase\/migrations/);
   });
 
   test("a rejected service-role key is an error", () => {
-    const [problem] = describeRosterProblems({ status: "unauthorized", detail: "HTTP 401" });
+    const [problem] = describeRosterProblems({
+      status: "unauthorized",
+      diagnostic: { httpStatus: 401 },
+    });
     assert.equal(problem.level, "error");
     assert.match(problem.fix, /SUPABASE_SERVICE_ROLE_KEY/);
   });
 
   test("being unable to reach Supabase only warns, so a blip cannot block a deploy", () => {
-    const [problem] = describeRosterProblems({ status: "unreachable", detail: "timed out" });
+    const [problem] = describeRosterProblems({
+      status: "unreachable",
+      diagnostic: { message: "Request timed out." },
+    });
     assert.equal(problem.level, "warning");
   });
 
@@ -162,9 +175,9 @@ describe("checking the co-presidents in Supabase", () => {
       { status: "ok", emails: real },
       { status: "ok", emails: real.slice(0, 1) },
       { status: "ok", emails: [...real, "co-president-one@example.org"] },
-      { status: "unauthorized", detail: "HTTP 401" },
-      { status: "missing-table", detail: "HTTP 404" },
-      { status: "unreachable", detail: "timed out" },
+      { status: "unauthorized", diagnostic: { httpStatus: 401 } },
+      { status: "missing-table", diagnostic: { httpStatus: 404, code: "PGRST205" } },
+      { status: "unreachable", diagnostic: { message: "Request timed out." } },
     ];
     for (const lookup of lookups) {
       for (const problem of describeRosterProblems(lookup)) {
@@ -177,5 +190,56 @@ describe("checking the co-presidents in Supabase", () => {
         }
       }
     }
+  });
+});
+
+describe("classifying Supabase Data API failures", () => {
+  test("PGRST205 is the only 404 diagnosed as a missing table", () => {
+    const body = JSON.stringify({
+      code: "PGRST205",
+      message: "Could not find the table 'public.authorized_presidents' in the schema cache",
+      details: null,
+      hint: null,
+    });
+    assert.equal(classifyRosterFailure(404, body, "abc.supabase.co").status, "missing-table");
+  });
+
+  test("a generic 404 is diagnosed as a bad endpoint, not a missing table", () => {
+    assert.equal(classifyRosterFailure(404, "Not Found", "abc.supabase.co").status, "bad-endpoint");
+  });
+
+  test("authorization failures stay distinct", () => {
+    assert.equal(
+      classifyRosterFailure(401, JSON.stringify({ message: "Invalid API key" })).status,
+      "unauthorized",
+    );
+  });
+
+  test("safe PostgREST fields and the public hostname are retained", () => {
+    const parsed = parseSupabaseErrorBody(JSON.stringify({
+      code: "PGRST301",
+      message: "JWT expired",
+      details: "detail",
+      hint: "refresh",
+      secret: "must not be copied",
+    }));
+    assert.deepEqual(parsed, {
+      code: "PGRST301",
+      message: "JWT expired",
+      details: "detail",
+      hint: "refresh",
+    });
+    assert.equal(supabaseHostname("https://abc.supabase.co"), "abc.supabase.co");
+    assert.deepEqual(
+      diagnosticLines({ hostname: "abc.supabase.co", httpStatus: 400, ...parsed }),
+      [
+        "Supabase host: abc.supabase.co",
+        "HTTP status: 400",
+        "Supabase code: PGRST301",
+        "Message: JWT expired",
+        "Details: detail",
+        "Hint: refresh",
+      ],
+    );
   });
 });
