@@ -42,6 +42,7 @@ export interface DeploymentProblem {
   level: "error" | "warning";
   message: string;
   fix: string;
+  details?: string[];
 }
 
 export interface DeploymentEnv {
@@ -72,9 +73,98 @@ export function parseEmails(raw: string | undefined): string[] {
  */
 export type RosterLookup =
   | { status: "ok"; emails: string[] }
-  | { status: "unauthorized"; detail: string }
-  | { status: "missing-table"; detail: string }
-  | { status: "unreachable"; detail: string };
+  | { status: "unauthorized"; diagnostic: SupabaseDiagnostic }
+  | { status: "missing-table"; diagnostic: SupabaseDiagnostic }
+  | { status: "bad-endpoint"; diagnostic: SupabaseDiagnostic }
+  | { status: "unexpected-response"; diagnostic: SupabaseDiagnostic }
+  | { status: "unreachable"; diagnostic: SupabaseDiagnostic };
+
+export interface SupabaseDiagnostic {
+  hostname?: string;
+  httpStatus?: number;
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+}
+
+const MAX_DIAGNOSTIC_LENGTH = 300;
+
+function safeDiagnosticValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, MAX_DIAGNOSTIC_LENGTH);
+}
+
+export function supabaseHostname(rawUrl: string | undefined): string | undefined {
+  if (!rawUrl) return undefined;
+  try {
+    return new URL(rawUrl).hostname || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse only PostgREST's documented, non-secret error fields. */
+export function parseSupabaseErrorBody(body: string): Omit<SupabaseDiagnostic, "hostname" | "httpStatus"> {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    return {
+      code: safeDiagnosticValue(parsed.code),
+      message: safeDiagnosticValue(parsed.message),
+      details: safeDiagnosticValue(parsed.details),
+      hint: safeDiagnosticValue(parsed.hint),
+    };
+  } catch {
+    return {};
+  }
+}
+
+export function diagnosticLines(diagnostic: SupabaseDiagnostic): string[] {
+  const lines: string[] = [];
+  if (diagnostic.hostname) lines.push(`Supabase host: ${diagnostic.hostname}`);
+  if (diagnostic.httpStatus) lines.push(`HTTP status: ${diagnostic.httpStatus}`);
+  if (diagnostic.code) lines.push(`Supabase code: ${diagnostic.code}`);
+  if (diagnostic.message) lines.push(`Message: ${diagnostic.message}`);
+  if (diagnostic.details) lines.push(`Details: ${diagnostic.details}`);
+  if (diagnostic.hint) lines.push(`Hint: ${diagnostic.hint}`);
+  return lines;
+}
+
+/**
+ * Classify an unsuccessful Data API response. A bare 404 is not proof that
+ * a table is missing: a wrong project URL or a non-PostgREST endpoint can
+ * return one too. Only PostgREST's table-specific code/message earns that
+ * diagnosis.
+ */
+export function classifyRosterFailure(
+  httpStatus: number,
+  body: string,
+  hostname?: string,
+): Exclude<RosterLookup, { status: "ok" }> {
+  const diagnostic: SupabaseDiagnostic = {
+    hostname,
+    httpStatus,
+    ...parseSupabaseErrorBody(body),
+  };
+  const searchable = `${diagnostic.code ?? ""} ${diagnostic.message ?? ""}`.toLowerCase();
+
+  if (httpStatus === 401 || httpStatus === 403) {
+    return { status: "unauthorized", diagnostic };
+  }
+  if (
+    diagnostic.code === "PGRST205" ||
+    searchable.includes("could not find the table") ||
+    searchable.includes("relation") && searchable.includes("does not exist")
+  ) {
+    return { status: "missing-table", diagnostic };
+  }
+  if (httpStatus === 404) {
+    return { status: "bad-endpoint", diagnostic };
+  }
+  return { status: "unexpected-response", diagnostic };
+}
 
 /**
  * Judge the roster.
@@ -88,8 +178,9 @@ export function describeRosterProblems(lookup: RosterLookup): DeploymentProblem[
     return [
       {
         level: "error",
-        message: `Supabase refused the service-role key (${lookup.detail}).`,
+        message: "Supabase refused the service-role key.",
         fix: "Check SUPABASE_SERVICE_ROLE_KEY against Project Settings -> API Keys.",
+        details: diagnosticLines(lookup.diagnostic),
       },
     ];
   }
@@ -102,6 +193,31 @@ export function describeRosterProblems(lookup: RosterLookup): DeploymentProblem[
         fix:
           "Run the files in supabase/migrations/ in the Supabase SQL Editor, " +
           "oldest first.",
+        details: diagnosticLines(lookup.diagnostic),
+      },
+    ];
+  }
+
+  if (lookup.status === "bad-endpoint") {
+    return [
+      {
+        level: "error",
+        message: "The configured Supabase URL did not reach the Data API endpoint.",
+        fix:
+          "Copy the Project URL from Supabase -> Project Settings -> Data API into " +
+          "NEXT_PUBLIC_SUPABASE_URL. Do not use a dashboard URL.",
+        details: diagnosticLines(lookup.diagnostic),
+      },
+    ];
+  }
+
+  if (lookup.status === "unexpected-response") {
+    return [
+      {
+        level: "error",
+        message: "Supabase returned an unexpected response while checking the roster.",
+        fix: "Use the safe diagnostic lines below to correct the URL, key, or Data API setup.",
+        details: diagnosticLines(lookup.diagnostic),
       },
     ];
   }
@@ -110,10 +226,11 @@ export function describeRosterProblems(lookup: RosterLookup): DeploymentProblem[
     return [
       {
         level: "warning",
-        message: `Could not reach Supabase to check the co-presidents (${lookup.detail}).`,
+        message: "Could not reach Supabase to check the co-presidents.",
         fix:
           "The build will continue. Run `npm run check:deploy` once it is " +
           "reachable, or confirm the roster in the Supabase SQL Editor.",
+        details: diagnosticLines(lookup.diagnostic),
       },
     ];
   }
