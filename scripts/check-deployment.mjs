@@ -18,9 +18,11 @@
  * quietly: that is just someone building locally.
  */
 import {
+  classifyRosterFailure,
   describeDeploymentProblems,
   describeRosterProblems,
   looksUnconfigured,
+  supabaseHostname,
 } from "../src/lib/deployment-checks.ts";
 
 const RED = "\x1b[31m";
@@ -57,6 +59,13 @@ if (looksUnconfigured(env)) {
  */
 async function lookUpRoster(url, serviceKey) {
   if (!url || !serviceKey) return null;
+  const hostname = supabaseHostname(url);
+  if (!hostname) {
+    return {
+      status: "bad-endpoint",
+      diagnostic: { message: "NEXT_PUBLIC_SUPABASE_URL is not a valid absolute URL." },
+    };
+  }
   const endpoint = `${url.replace(/\/$/, "")}/rest/v1/authorized_presidents?select=email`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
@@ -66,27 +75,22 @@ async function lookUpRoster(url, serviceKey) {
       signal: controller.signal,
     });
 
-    if (response.status === 401 || response.status === 403) {
-      return { status: "unauthorized", detail: `HTTP ${response.status}` };
-    }
-    if (response.status === 404) {
-      return { status: "missing-table", detail: "HTTP 404" };
-    }
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      // PostgREST reports an unknown table as PGRST205 with a 400.
-      if (body.includes("PGRST205") || body.includes("does not exist")) {
-        return { status: "missing-table", detail: `HTTP ${response.status}` };
-      }
-      return { status: "unreachable", detail: `HTTP ${response.status}` };
+      return classifyRosterFailure(response.status, body, hostname);
     }
 
     const rows = await response.json();
-    if (!Array.isArray(rows)) return { status: "unreachable", detail: "unexpected response" };
+    if (!Array.isArray(rows)) {
+      return {
+        status: "unexpected-response",
+        diagnostic: { hostname, httpStatus: response.status, message: "Expected a JSON array." },
+      };
+    }
     return { status: "ok", emails: rows.map((row) => String(row.email ?? "")).filter(Boolean) };
   } catch (error) {
-    const detail = error?.name === "AbortError" ? "timed out" : (error?.message ?? "network error");
-    return { status: "unreachable", detail };
+    const message = error?.name === "AbortError" ? "Request timed out." : "Network request failed.";
+    return { status: "unreachable", diagnostic: { hostname, message } };
   } finally {
     clearTimeout(timer);
   }
@@ -129,6 +133,9 @@ for (const problem of problems) {
   const label = problem.level === "error" ? "ERROR  " : "WARNING";
   console.log(`\n${colour}${BOLD}${label}${OFF} ${problem.message}`);
   console.log(`        ${DIM}${problem.fix}${OFF}`);
+  for (const detail of problem.details ?? []) {
+    console.log(`        ${DIM}${detail}${OFF}`);
+  }
 }
 
 console.log(`\n${line}`);
