@@ -15,3 +15,6 @@ next-env.d.ts
 
 # local-only test scaffolding
 *.local.mjs
+
+# Supabase CLI scratch
+supabase/.temp/

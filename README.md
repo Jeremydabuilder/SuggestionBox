@@ -193,19 +193,68 @@ Deleting a suggestion is not possible from any client — archive instead.
    **service_role** key. The service-role key is a master key — never put it in
    frontend code, a screenshot, or a commit.
 
-## 2. Run the database migration
+## 2. Run the database migrations
 
-1. In the Supabase dashboard open **SQL Editor → New query**.
-2. Run the three files in `supabase/migrations/` **in order**, each as its own query:
+Two ways. Both end in the same place; pick whichever you prefer.
+
+### Option A — the SQL Editor (no tools, no secrets)
+
+1. Supabase dashboard → **SQL Editor → New query**.
+2. Run the three files in `supabase/migrations/` **in order**, each as its own
+   query:
    1. `20260101000000_init.sql`
    2. `20260102000000_duplicates.sql`
    3. `20260103000000_duplicate_reversals.sql`
-3. Each should finish without errors. Together they create the tables the app needs —
-   `suggestions`, `internal_notes`, `authorized_presidents`, `status_history` and
-   `suggestion_matches` — plus the rate-limit and digest bookkeeping tables, the
-   triggers, the grants, every RLS policy, and the realtime publication.
 
-If you prefer the CLI: `supabase link --project-ref <ref> && supabase db push`.
+### Option B — the Supabase CLI
+
+Run this **on your own machine**, so your access token and database password
+stay there. `supabase/config.toml` is committed, so the CLI works in this
+repository with no further setup.
+
+```bash
+# 1. Sign in. Opens a browser; no token is typed anywhere.
+npx supabase login
+
+# 2. Link this checkout to your project. Your project ref is in the
+#    dashboard URL: https://supabase.com/dashboard/project/<ref>
+#    You will be prompted for your database password — type it at the
+#    prompt, never as a command-line argument (arguments land in shell
+#    history).
+npx supabase link --project-ref <your-project-ref>
+
+# 3. See what would be applied, before applying it.
+npx supabase db push --dry-run
+
+# 4. Apply.
+npx supabase db push
+```
+
+Expected output from step 4:
+
+```
+Applying migration 20260101000000_init.sql...
+Applying migration 20260102000000_duplicates.sql...
+Applying migration 20260103000000_duplicate_reversals.sql...
+Finished supabase db push.
+```
+
+### Either way, verify
+
+Run `supabase/tests/verify_schema.sql` in the SQL Editor. It is read-only and
+adds no data. You want four `PASS` lines:
+
+```
+PASS: all 7 expected tables exist
+PASS: RLS enabled on all 7 public tables
+PASS: anon holds INSERT on suggestions and nothing more
+PASS: anon holds no privileges on any other table
+PASS: is_president() exists
+```
+
+The seven tables are `suggestions`, `internal_notes`, `authorized_presidents`,
+`status_history` and `suggestion_matches`, plus the `submission_log` and
+`digest_runs` bookkeeping tables.
 
 ## 3. Add the two co-presidents
 
@@ -512,7 +561,8 @@ src/
   lib/                           env, auth, validation, sanitising, rate limiting, digest
   middleware.ts                  Refreshes the Supabase session cookie
 supabase/migrations/             Schema, policies, triggers, grants, president roster
-supabase/tests/                  Access-control checks to run against a dev database
+supabase/config.toml             Makes `supabase link` / `db push` work in this repo
+supabase/tests/                  Schema verification and access-control checks
 supabase/maintenance/            One-off operator scripts (clearing test data)
 scripts/check-deployment.mjs     Pre-build check: keys, site URL, and the roster
 render.yaml                      Optional Render Blueprint: the service, written down

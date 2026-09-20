@@ -1,0 +1,20 @@
+# Supabase CLI project configuration.
+#
+# Present so that `supabase link` and `supabase db push` work against this
+# repository without any further setup. The CLI refuses to run in a directory
+# that has no config.toml, even when the migrations are right there.
+#
+# project_id is only a local label for the CLI. Your real project is chosen
+# with `supabase link --project-ref <your-ref>`, and the ref is not recorded
+# in this file.
+
+project_id = "suggestion-box"
+
+[db]
+# Matches the Postgres major version Supabase provisions for new projects.
+# Only affects `supabase start` locally; `db push` uses whatever the remote
+# project runs.
+major_version = 17
+
+[db.migrations]
+enabled = true
