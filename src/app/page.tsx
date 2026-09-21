@@ -48,18 +48,12 @@ export default function HomePage() {
           middle school life better, we want to hear it. Your suggestion goes straight to the
           co-presidents.
         </p>
-
-        <div aria-label="Example ideas" className="mt-8 flex flex-wrap justify-center gap-2.5 sm:gap-3">
-          <span className="idea-float idea-float-one">Better snacks</span>
-          <span className="idea-float idea-float-two">A new tournament</span>
-          <span className="idea-float idea-float-three">More places to hang out</span>
-          <span className="idea-float idea-float-four">Your idea here</span>
-        </div>
       </section>
 
       {/* Tighter on a phone, where this gap is what separates the intro
-          from the box once the success state replaces the form. */}
-      <div className="mt-9 sm:mt-20">
+          from the box once the success state replaces the form. Sized to
+          the paragraph alone now that the example-idea pills are gone. */}
+      <div className="mt-8 sm:mt-14">
         <SubmissionFlow />
       </div>
 
