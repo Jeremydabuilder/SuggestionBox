@@ -84,12 +84,23 @@ export default function SubmissionFlow() {
   const [turnstileReset, setTurnstileReset] = useState(0);
   const [runId, setRunId] = useState(0);
   const [paperTitle, setPaperTitle] = useState("");
+  const [viewerEmail, setViewerEmail] = useState<string | null>(null);
+  const [savedToAccount, setSavedToAccount] = useState(false);
 
   const compositionRef = useRef<HTMLDivElement>(null);
   const paperAreaRef = useRef<HTMLDivElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
   const successCardRef = useRef<HTMLDivElement>(null);
   const successRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/me", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.json())
+      .then((result: { email?: string | null }) => setViewerEmail(result.email ?? null))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   // The paper is absolutely positioned so it can fly away without disturbing
   // the page, which means the stage has to carry its height. A CSS
@@ -328,6 +339,7 @@ export default function SubmissionFlow() {
 
       // Saved and confirmed by the database — only now do we celebrate.
       setPaperTitle(form.title.trim());
+      setSavedToAccount(Boolean(viewerEmail && !form.isAnonymous));
       setPhase("animating");
       if (prefersReducedMotion) {
         setPhase("done");
@@ -361,6 +373,7 @@ export default function SubmissionFlow() {
     setErrors({});
     setFormError(null);
     setPaperTitle("");
+    setSavedToAccount(false);
     setTurnstileToken(null);
     setTurnstileReset((n) => n + 1);
     setPhase("form");
@@ -438,6 +451,7 @@ export default function SubmissionFlow() {
                           onSubmit={handleSubmit}
                           onToken={setTurnstileToken}
                           turnstileReset={turnstileReset}
+                          viewerEmail={viewerEmail}
                         />
                       </div>
 
@@ -506,6 +520,17 @@ export default function SubmissionFlow() {
                 It&rsquo;s waiting in the co-presidents&rsquo; private dashboard. Thanks for
                 helping improve our school.
               </motion.p>
+
+              {savedToAccount && (
+                <motion.a
+                  {...rise(0.4)}
+                  href="/my-ideas"
+                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12.5px] font-semibold text-emerald-900"
+                >
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+                  Saved to My ideas — track its progress
+                </motion.a>
+              )}
 
               {/* The button arrives last, once there is something to leave. */}
               <motion.div {...rise(0.52)} className="mt-7">
@@ -590,6 +615,7 @@ function SuggestionFormFields({
   onSubmit,
   onToken,
   turnstileReset,
+  viewerEmail,
 }: {
   form: FormState;
   errors: Record<string, string>;
@@ -599,6 +625,7 @@ function SuggestionFormFields({
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onToken: (token: string | null) => void;
   turnstileReset: number;
+  viewerEmail: string | null;
 }) {
   return (
     <form onSubmit={onSubmit} noValidate>
@@ -606,6 +633,32 @@ function SuggestionFormFields({
       <div aria-hidden className="absolute left-[-9999px] top-0 h-0 w-0 overflow-hidden">
         <label htmlFor="website">Website</label>
         <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
+      </div>
+
+      <div className="mb-7 border-b border-rule pb-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="eyebrow">Make your voice count</p>
+            <h2 className="mt-2 text-[24px] leading-tight font-bold text-navy sm:text-[28px]">
+              What should be better?
+            </h2>
+          </div>
+          <span className="rounded-full bg-paper-deep px-3 py-1.5 text-[12px] font-semibold text-navy-soft">
+            About 2 minutes
+          </span>
+        </div>
+        <div className="mt-5 grid grid-cols-3 gap-2" aria-hidden>
+          {[
+            ["01", "The idea"],
+            ["02", "Why it matters"],
+            ["03", "Your choice"],
+          ].map(([number, label]) => (
+            <div key={number} className="border-t-2 border-navy/15 pt-2">
+              <span className="mr-1.5 text-[10px] font-bold text-accent">{number}</span>
+              <span className="text-[11px] font-semibold text-navy-soft sm:text-[12px]">{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -707,6 +760,25 @@ function SuggestionFormFields({
 
         {/* ---- identity (entirely optional) ---- */}
         <div className="rounded-[12px] border border-rule bg-paper-deep/50 p-4 sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-4">
+            <div>
+              <p className="text-sm font-semibold text-navy">Want to follow its progress?</p>
+              <p className="mt-0.5 text-[12.5px] text-navy-soft">
+                {viewerEmail
+                  ? `Tracking is on for ${viewerEmail}`
+                  : "Sign in before sending and it will appear in My ideas."}
+              </p>
+            </div>
+            {viewerEmail ? (
+              <a href="/my-ideas" className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12px] font-semibold text-emerald-900">
+                My ideas
+              </a>
+            ) : (
+              <a href="/my-ideas/login" className="btn-quiet px-3 py-1.5 text-[12.5px]">
+                Sign in to track
+              </a>
+            )}
+          </div>
           <label className="flex cursor-pointer items-start gap-3">
             <input
               type="checkbox"
@@ -719,7 +791,7 @@ function SuggestionFormFields({
               <span className="font-semibold text-navy">Submit without my name</span>
               <span className="mt-0.5 block text-navy-soft">
                 Your idea arrives completely anonymously. We won&rsquo;t be able to reach you
-                about it.
+                about it or connect it to My ideas.
               </span>
             </span>
           </label>
