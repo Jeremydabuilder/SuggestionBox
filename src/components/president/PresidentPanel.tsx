@@ -214,6 +214,37 @@ export default function PresidentPanel({
     setDuplicatesOnly(false);
   }
 
+  function showAll() {
+    clearFilters();
+  }
+
+  function showUnread() {
+    setQuery("");
+    setCategory("all");
+    setStatus("all");
+    setReadFilter("unread");
+    setShowArchived(false);
+    setDuplicatesOnly(false);
+  }
+
+  function showStatus(next: Status) {
+    setQuery("");
+    setCategory("all");
+    setStatus(next);
+    setReadFilter("all");
+    setShowArchived(next === "archived");
+    setDuplicatesOnly(false);
+  }
+
+  function showDuplicates() {
+    setQuery("");
+    setCategory("all");
+    setStatus("all");
+    setReadFilter("all");
+    setShowArchived(false);
+    setDuplicatesOnly(true);
+  }
+
   async function runRescan() {
     setRescanning(true);
     setRescanNote(null);
@@ -241,6 +272,11 @@ export default function PresidentPanel({
           <h1 className="mt-2 text-[28px] leading-tight font-bold text-navy sm:text-[34px]">
             Suggestion inbox
           </h1>
+          <p className="mt-1 text-sm text-navy-soft">
+            {stats.unread > 0
+              ? `${stats.unread} suggestion${stats.unread === 1 ? "" : "s"} waiting to be read`
+              : "You’re caught up — no unread suggestions"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-navy-soft sm:inline">{currentEmail}</span>
@@ -301,11 +337,12 @@ export default function PresidentPanel({
       </AnimatePresence>
 
       {/* ---- stats ----------------------------------------------------- */}
-      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Total suggestions" value={stats.total} />
-        <Stat label="Unread" value={stats.unread} accent={stats.unread > 0} />
-        <Stat label="Being discussed" value={stats.discussing} />
-        <Stat label="Completed" value={stats.completed} />
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Stat label="All suggestions" value={stats.total} active={!filtersActive} onClick={showAll} />
+        <Stat label="Unread" value={stats.unread} accent={stats.unread > 0} active={readFilter === "unread"} onClick={showUnread} />
+        <Stat label="Discussing" value={stats.discussing} active={status === "discussing"} onClick={() => showStatus("discussing")} />
+        <Stat label="Possible duplicates" value={stats.withDuplicates} active={duplicatesOnly} onClick={showDuplicates} />
+        <Stat label="Completed" value={stats.completed} active={status === "completed"} onClick={() => showStatus("completed")} />
       </div>
 
       {/* ---- toolbar --------------------------------------------------- */}
@@ -418,6 +455,19 @@ export default function PresidentPanel({
       {/* ---- list + detail --------------------------------------------- */}
       <div className={`mt-5 grid gap-5 ${selected ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]" : ""}`}>
         <div>
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="eyebrow">Inbox</p>
+              <h2 className="mt-1 text-xl font-bold text-navy">
+                {visible.length} suggestion{visible.length === 1 ? "" : "s"}
+              </h2>
+            </div>
+            {filtersActive && (
+              <button type="button" onClick={clearFilters} className="btn-quiet">
+                Reset view
+              </button>
+            )}
+          </div>
           {visible.length === 0 ? (
             <div className="paper px-6 py-16 text-center">
               <p className="font-display text-lg font-semibold text-navy">
@@ -451,16 +501,28 @@ export default function PresidentPanel({
 
         <AnimatePresence mode="wait">
           {selected && (
-            <SuggestionDetail
-              key={selected.id}
-              suggestion={selected}
-              allSuggestions={suggestions}
-              matches={matches}
-              currentEmail={currentEmail}
-              refreshSignal={detailSignal}
-              onOpenSuggestion={setSelectedId}
-              onClose={() => setSelectedId(null)}
-            />
+            <>
+              <motion.button
+                key="detail-backdrop"
+                type="button"
+                aria-label="Close suggestion details"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedId(null)}
+                className="fixed inset-0 z-40 bg-navy/35 backdrop-blur-[2px] lg:hidden"
+              />
+              <SuggestionDetail
+                key={selected.id}
+                suggestion={selected}
+                allSuggestions={suggestions}
+                matches={matches}
+                currentEmail={currentEmail}
+                refreshSignal={detailSignal}
+                onOpenSuggestion={setSelectedId}
+                onClose={() => setSelectedId(null)}
+              />
+            </>
           )}
         </AnimatePresence>
       </div>
@@ -470,18 +532,42 @@ export default function PresidentPanel({
 
 /* ------------------------------------------------------------------ */
 
-function Stat({ label, value, accent = false }: { label: string; value: number; accent?: boolean }) {
+function Stat({
+  label,
+  value,
+  accent = false,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  accent?: boolean;
+  active?: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className={`paper px-4 py-3.5 ${accent ? "border-accent/45" : ""}`}>
-      <p className="text-[12px] font-semibold tracking-wide text-navy-soft uppercase">{label}</p>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`paper group min-h-[92px] px-4 py-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-navy/25 hover:shadow-md ${
+        active ? "border-navy bg-navy text-white" : accent ? "border-accent/45" : ""
+      }`}
+    >
+      <p className={`text-[12px] font-semibold tracking-wide uppercase ${active ? "text-white/75" : "text-navy-soft"}`}>
+        {label}
+      </p>
       <p
         className={`mt-1 font-display text-[30px] leading-none font-bold tabular-nums ${
-          accent ? "text-accent" : "text-navy"
+          active ? "text-white" : accent ? "text-accent" : "text-navy"
         }`}
       >
         {value}
       </p>
-    </div>
+      <span className={`mt-2 block text-[11px] font-semibold ${active ? "text-white/70" : "text-navy-soft/70"}`}>
+        {active ? "Current view" : "View these"}
+      </span>
+    </button>
   );
 }
 
