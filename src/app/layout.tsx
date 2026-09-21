@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Inter } from "next/font/google";
 import "./globals.css";
+import ThemeToggle from "@/components/ThemeToggle";
 
 const display = Space_Grotesk({
   subsets: ["latin"],
@@ -29,10 +30,23 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const themeScript = `
+    try {
+      var saved = localStorage.getItem('suggestion-box-theme');
+      var theme = saved === 'light' || saved === 'dark'
+        ? saved
+        : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.colorScheme = theme;
+    } catch (_) {}
+  `;
+
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    <html lang="en" className={`${display.variable} ${body.variable}`} suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
       <body className="min-h-dvh antialiased">
         <div className="relative z-10">{children}</div>
+        <ThemeToggle />
       </body>
     </html>
   );
