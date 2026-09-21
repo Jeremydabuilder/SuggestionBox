@@ -101,6 +101,8 @@ export interface Suggestion {
    * of anything, or is itself the one being tracked.
    */
   primary_suggestion_id: string | null;
+  /** Present only for a signed-in, non-anonymous student submission. */
+  submitter_user_id?: string | null;
 }
 
 export interface InternalNote {
