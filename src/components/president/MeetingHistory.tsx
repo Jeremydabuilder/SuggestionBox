@@ -9,6 +9,8 @@ import {
   updateMeetingBrief,
 } from "@/app/president/workspace-actions";
 import type { MeetingBriefSummary, SavedMeetingBrief } from "@/lib/meeting-brief-store";
+import type { PrefillDecision } from "./DecisionLog";
+import type { PrefillAction } from "./ActionItems";
 
 const STATE_LABEL: Record<SavedMeetingBrief["state"], string> = {
   draft: "Draft",
@@ -22,7 +24,15 @@ const STATE_STYLE: Record<SavedMeetingBrief["state"], string> = {
   archived: "border-navy/20 bg-navy/5 text-navy/70",
 };
 
-export default function MeetingHistory({ refreshSignal }: { refreshSignal: number }) {
+export default function MeetingHistory({
+  refreshSignal,
+  onAddDecision,
+  onAddAction,
+}: {
+  refreshSignal: number;
+  onAddDecision?: (prefill: PrefillDecision) => void;
+  onAddAction?: (prefill: PrefillAction) => void;
+}) {
   const [showArchived, setShowArchived] = useState(false);
   const [briefs, setBriefs] = useState<MeetingBriefSummary[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -180,6 +190,8 @@ export default function MeetingHistory({ refreshSignal }: { refreshSignal: numbe
             await openBrief(selectedId);
           }}
           onArchiveToggled={() => toggleArchive(selectedId, detail?.state === "archived")}
+          onAddDecision={onAddDecision}
+          onAddAction={onAddAction}
         />
       )}
     </div>
@@ -198,6 +210,8 @@ function BriefDetailPanel({
   onClose,
   onSaved,
   onArchiveToggled,
+  onAddDecision,
+  onAddAction,
 }: {
   briefId: string;
   detail: SavedMeetingBrief | null;
@@ -206,6 +220,8 @@ function BriefDetailPanel({
   onClose: () => void;
   onSaved: () => Promise<void>;
   onArchiveToggled: () => void;
+  onAddDecision?: (prefill: PrefillDecision) => void;
+  onAddAction?: (prefill: PrefillAction) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditableForm | null>(null);
@@ -222,6 +238,13 @@ function BriefDetailPanel({
     () => new Map((detail?.citations ?? []).map((c) => [c.ref, c.title])),
     [detail],
   );
+  const citationIds = useMemo(
+    () => new Map((detail?.citations ?? []).map((c) => [c.ref, c.id])),
+    [detail],
+  );
+  function citedIdsFor(refs: string[]): string[] {
+    return [...new Set(refs.map((ref) => citationIds.get(ref)).filter((id): id is string => Boolean(id)))];
+  }
 
   async function save() {
     if (!detail || !form) return;
@@ -300,13 +323,34 @@ function BriefDetailPanel({
                   </ol>
                 </ReadOnlySection>
                 <ReadOnlySection title="Quick wins">
-                  {item2list(detail.quickWins.map((q) => ({ title: q.title, body: q.nextStep, refs: q.suggestionRefs })), citationTitles)}
+                  {item2list(
+                    detail.quickWins.map((q) => ({ title: q.title, body: q.nextStep, refs: q.suggestionRefs })),
+                    citationTitles,
+                    onAddAction && {
+                      label: "Add to Action Items",
+                      onAdd: (item) => onAddAction({ text: `${item.title} — ${item.body}`, meetingId: briefId, citedSuggestionIds: citedIdsFor(item.refs) }),
+                    },
+                  )}
                 </ReadOnlySection>
                 <ReadOnlySection title="Decisions needed">
-                  {item2list(detail.decisionsNeeded.map((d) => ({ title: d.question, body: d.context, refs: d.suggestionRefs })), citationTitles)}
+                  {item2list(
+                    detail.decisionsNeeded.map((d) => ({ title: d.question, body: d.context, refs: d.suggestionRefs })),
+                    citationTitles,
+                    onAddDecision && {
+                      label: "Add to Decision Log",
+                      onAdd: (item) => onAddDecision({ text: item.title, meetingId: briefId, citedSuggestionIds: citedIdsFor(item.refs) }),
+                    },
+                  )}
                 </ReadOnlySection>
                 <ReadOnlySection title="Follow-ups">
-                  {item2list(detail.followUps.map((f) => ({ title: f.action, body: `${f.suggestedOwner} · ${f.timing}`, refs: f.suggestionRefs })), citationTitles)}
+                  {item2list(
+                    detail.followUps.map((f) => ({ title: f.action, body: `${f.suggestedOwner} · ${f.timing}`, refs: f.suggestionRefs })),
+                    citationTitles,
+                    onAddAction && {
+                      label: "Add to Action Items",
+                      onAdd: (item) => onAddAction({ text: item.title, meetingId: briefId, citedSuggestionIds: citedIdsFor(item.refs) }),
+                    },
+                  )}
                 </ReadOnlySection>
                 {detail.watchouts.length > 0 && (
                   <ReadOnlySection title="Watch-outs">
@@ -356,6 +400,7 @@ function ReadOnlySection({ title, children }: { title: string; children: React.R
 function item2list(
   items: Array<{ title: string; body: string; refs: string[] }>,
   titles: Map<string, string>,
+  addControl?: { label: string; onAdd: (item: { title: string; body: string; refs: string[] }) => void } | false,
 ) {
   if (items.length === 0) return <p className="text-[12.5px] text-navy-soft">None.</p>;
   return (
@@ -365,6 +410,15 @@ function item2list(
           <h4 className="text-[13px] font-bold text-navy">{item.title}</h4>
           <p className="mt-1 text-[12px] text-navy-soft">{item.body}</p>
           <RefChips refs={item.refs} titles={titles} />
+          {addControl && (
+            <button
+              type="button"
+              onClick={() => addControl.onAdd(item)}
+              className="mt-2 text-[11.5px] font-semibold text-violet-800 underline decoration-dotted underline-offset-2 hover:text-violet-950"
+            >
+              {addControl.label}
+            </button>
+          )}
         </div>
       ))}
     </div>

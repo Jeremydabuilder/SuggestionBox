@@ -5,6 +5,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { prepareWeeklyMeeting } from "@/app/president/actions";
 import { saveMeetingBrief } from "@/app/president/workspace-actions";
 import type { MeetingBrief, MeetingScope } from "@/lib/meeting-agent";
+import type { PrefillDecision } from "./DecisionLog";
+import type { PrefillAction } from "./ActionItems";
 
 const SCOPE_OPTIONS: Array<{ value: MeetingScope; label: string }> = [
   { value: "new", label: "Past 7 days" },
@@ -16,12 +18,18 @@ export default function MeetingAgent({
   configured,
   onSaved,
   onViewHistory,
+  onAddDecision,
+  onAddAction,
 }: {
   configured: boolean;
   /** Called once a brief has been saved, so a parent can refresh Meeting History. */
   onSaved?: () => void;
   /** Called when the president wants to jump to Meeting History after saving. */
   onViewHistory?: () => void;
+  /** "Add to Decision Log" on a decision-needed item — never called automatically. */
+  onAddDecision?: (prefill: PrefillDecision) => void;
+  /** "Add to Action Items" on a quick win or follow-up — never called automatically. */
+  onAddAction?: (prefill: PrefillAction) => void;
 }) {
   const [scope, setScope] = useState<MeetingScope>("new");
   const [loading, setLoading] = useState(false);
@@ -38,6 +46,14 @@ export default function MeetingAgent({
     () => new Map(brief?.sources.map((source) => [source.ref, source.title]) ?? []),
     [brief],
   );
+  const sourceIds = useMemo(
+    () => new Map(brief?.sources.map((source) => [source.ref, source.id]) ?? []),
+    [brief],
+  );
+
+  function citedIdsFor(refs: string[]): string[] {
+    return [...new Set(refs.map((ref) => sourceIds.get(ref)).filter((id): id is string => Boolean(id)))];
+  }
 
   async function generate() {
     setLoading(true);
@@ -274,18 +290,33 @@ export default function MeetingAgent({
                     empty="No obvious quick wins this time."
                     items={brief.quickWins.map((item) => ({ title: item.title, body: item.nextStep, refs: item.suggestionRefs }))}
                     titles={sourceTitles}
+                    addLabel={onAddAction ? "Add to Action Items" : undefined}
+                    onAdd={
+                      onAddAction &&
+                      ((item) => onAddAction({ text: `${item.title} — ${item.body}`, meetingId: null, citedSuggestionIds: citedIdsFor(item.refs) }))
+                    }
                   />
                   <BriefList
                     title="Decisions needed"
                     empty="No major decisions flagged."
                     items={brief.decisionsNeeded.map((item) => ({ title: item.question, body: item.context, refs: item.suggestionRefs }))}
                     titles={sourceTitles}
+                    addLabel={onAddDecision ? "Add to Decision Log" : undefined}
+                    onAdd={
+                      onAddDecision &&
+                      ((item) => onAddDecision({ text: item.title, meetingId: null, citedSuggestionIds: citedIdsFor(item.refs) }))
+                    }
                   />
                   <BriefList
                     title="Follow-ups"
                     empty="No follow-ups proposed."
                     items={brief.followUps.map((item) => ({ title: item.action, body: `${item.suggestedOwner} · ${item.timing}`, refs: item.suggestionRefs }))}
                     titles={sourceTitles}
+                    addLabel={onAddAction ? "Add to Action Items" : undefined}
+                    onAdd={
+                      onAddAction &&
+                      ((item) => onAddAction({ text: item.title, meetingId: null, citedSuggestionIds: citedIdsFor(item.refs) }))
+                    }
                   />
                 </div>
               </div>
@@ -307,11 +338,16 @@ function BriefList({
   items,
   empty,
   titles,
+  addLabel,
+  onAdd,
 }: {
   title: string;
   items: Array<{ title: string; body: string; refs: string[] }>;
   empty: string;
   titles: Map<string, string>;
+  /** Present only when the parent wants an explicit, per-item add control. */
+  addLabel?: string;
+  onAdd?: (item: { title: string; body: string; refs: string[] }) => void;
 }) {
   return (
     <section>
@@ -324,6 +360,15 @@ function BriefList({
             <h4 className="text-[13px] font-bold text-navy">{item.title}</h4>
             <p className="mt-1 text-[12px] leading-relaxed text-navy-soft">{item.body}</p>
             <References refs={item.refs} titles={titles} />
+            {onAdd && addLabel && (
+              <button
+                type="button"
+                onClick={() => onAdd(item)}
+                className="mt-2 text-[11.5px] font-semibold text-violet-800 underline decoration-dotted underline-offset-2 hover:text-violet-950"
+              >
+                {addLabel}
+              </button>
+            )}
           </div>
         ))}
       </div>

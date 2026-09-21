@@ -342,7 +342,17 @@ export default function PresidentPanel({
         </button>
       </nav>
 
-      {view === "workspace" && <AIWorkspace configured={meetingAgentConfigured} />}
+      {view === "workspace" && (
+        <AIWorkspace
+          configured={meetingAgentConfigured}
+          suggestions={suggestions}
+          onOpenSuggestion={(id) => {
+            setView("inbox");
+            setSelectedId(id);
+            setArrivedCount(0);
+          }}
+        />
+      )}
 
       {view === "inbox" && (
       <>
