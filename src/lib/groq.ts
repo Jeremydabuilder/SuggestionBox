@@ -5,7 +5,7 @@ const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODELS_ENDPOINT = "https://api.groq.com/openai/v1/models";
 const DEFAULT_MODELS = ["openai/gpt-oss-20b", "llama-3.1-8b-instant"];
 
-class GroqRequestError extends Error {
+export class GroqRequestError extends Error {
   readonly status: number;
 
   constructor(message: string, status: number) {
@@ -101,6 +101,74 @@ export async function generateMeetingBrief(records: AnonymousSuggestion[], scope
     }
   }
   throw lastError ?? new Error("No compatible Groq model was available.");
+}
+
+/**
+ * Generic single-call JSON completion, for callers that aren't the meeting
+ * brief (e.g. the intent classifier). Reuses the same model discovery/
+ * fallback/timeout machinery as generateMeetingBrief — the configured
+ * GROQ_MODEL is respected, and a missing/incompatible model tries the next
+ * known-good one rather than silently escalating to something expensive.
+ * Returns the raw JSON string; the caller is responsible for parsing and
+ * validating it against its own schema.
+ */
+export async function generateJsonCompletion(
+  systemPrompt: string,
+  userPrompt: string,
+  options: { maxTokens?: number; timeoutMs?: number } = {},
+): Promise<{ content: string; model: string }> {
+  let lastError: unknown;
+  for (const model of await candidateModels()) {
+    try {
+      const content = await askJsonModel(model, systemPrompt, userPrompt, options);
+      return { content, model };
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof GroqRequestError) || ![400, 404, 422].includes(error.status)) throw error;
+    }
+  }
+  throw lastError ?? new Error("No compatible Groq model was available.");
+}
+
+async function askJsonModel(
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  options: { maxTokens?: number; timeoutMs?: number },
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 8_000);
+  try {
+    const response = await fetch(GROQ_ENDPOINT, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${serverEnv.groqApiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        max_completion_tokens: options.maxTokens ?? 300,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new GroqRequestError(`Groq returned HTTP ${response.status}.`, response.status);
+    }
+
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) throw new Error("The model returned an empty response.");
+    return content;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function meetingAgentError(error: unknown): string {
