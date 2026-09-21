@@ -14,6 +14,11 @@ export async function requestStudentLink(
     return { ok: false, message: "Enter a valid school email address." };
   }
 
+  const domain = serverEnv.studentEmailDomain;
+  if (domain && !email.endsWith(`@${domain}`)) {
+    return { ok: false, message: `Use your school email address (must end in @${domain}).` };
+  }
+
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.signInWithOtp({
     email,

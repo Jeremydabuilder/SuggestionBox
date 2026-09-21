@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CATEGORY_VALUES } from "./types";
+import { CATEGORY_VALUES } from "./types.ts";
 
 export const LIMITS = {
   title: 120,
@@ -14,11 +14,10 @@ export const MINIMUMS = {
   title: 3,
   description: 20,
   improvementReason: 10,
+  name: 1,
 } as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export const suggestionSchema = z.object({
     title: z
@@ -43,13 +42,14 @@ export const suggestionSchema = z.object({
         LIMITS.improvementReason,
         `Keep this to ${LIMITS.improvementReason} characters or fewer.`,
       ),
-    isAnonymous: z.boolean(),
-    studentName: z.string().max(LIMITS.name, "That name is too long.").optional(),
-    studentEmail: z
+    // Identity is required for every new submission. studentName comes from
+    // the client (the only thing a student types); studentEmail is never
+    // accepted from the client at all — the server fills it in from the
+    // verified, signed-in Supabase session. See src/app/api/suggestions/route.ts.
+    studentName: z
       .string()
-      .max(LIMITS.email, "That email address is too long.")
-      .refine((v) => v === "" || emailPattern.test(v), "That doesn't look like an email address.")
-      .optional(),
+      .min(MINIMUMS.name, "Enter your name.")
+      .max(LIMITS.name, "That name is too long."),
     turnstileToken: z.string().optional(),
   });
 

@@ -69,6 +69,14 @@ export const serverEnv = {
   get groqModel() {
     return optional("GROQ_MODEL");
   },
+  /**
+   * Optional: restrict student magic-link sign-in to one email domain (for
+   * example "ourschool.org"). Unset by default — never hard-code a real
+   * school's domain here. Compared case-insensitively, without the "@".
+   */
+  get studentEmailDomain() {
+    return optional("STUDENT_EMAIL_DOMAIN")?.toLowerCase().replace(/^@/, "");
+  },
 } as const;
 
 /** Safe for the browser — inlined by Next.js at build time. */
@@ -76,4 +84,7 @@ export const publicEnv = {
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
   turnstileSiteKey: process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "",
+  // Purely a UI hint (the actual restriction is enforced server-side in
+  // requestStudentLink); safe to expose since it is just a domain name.
+  studentEmailDomain: process.env.NEXT_PUBLIC_STUDENT_EMAIL_DOMAIN ?? "",
 };

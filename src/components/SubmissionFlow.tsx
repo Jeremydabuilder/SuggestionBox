@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useAnimate, useReducedMotion } from "framer-motion";
+import { motion, useAnimate, useReducedMotion } from "framer-motion";
 import SuggestionBoxArt, { SLOT_BOX } from "./SuggestionBoxArt";
 import Turnstile from "./Turnstile";
 import { CATEGORIES, type Category } from "@/lib/types";
@@ -16,8 +16,6 @@ interface FormState {
   category: Category | "";
   improvementReason: string;
   studentName: string;
-  studentEmail: string;
-  isAnonymous: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -26,8 +24,6 @@ const EMPTY_FORM: FormState = {
   category: "",
   improvementReason: "",
   studentName: "",
-  studentEmail: "",
-  isAnonymous: false,
 };
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
@@ -84,8 +80,8 @@ export default function SubmissionFlow() {
   const [turnstileReset, setTurnstileReset] = useState(0);
   const [runId, setRunId] = useState(0);
   const [paperTitle, setPaperTitle] = useState("");
-  const [viewerEmail, setViewerEmail] = useState<string | null>(null);
-  const [savedToAccount, setSavedToAccount] = useState(false);
+  // undefined = still checking; null = confirmed signed out; string = signed in.
+  const [viewerEmail, setViewerEmail] = useState<string | null | undefined>(undefined);
 
   const compositionRef = useRef<HTMLDivElement>(null);
   const paperAreaRef = useRef<HTMLDivElement>(null);
@@ -98,7 +94,7 @@ export default function SubmissionFlow() {
     void fetch("/api/me", { cache: "no-store", signal: controller.signal })
       .then((response) => response.json())
       .then((result: { email?: string | null }) => setViewerEmail(result.email ?? null))
-      .catch(() => undefined);
+      .catch(() => setViewerEmail(null));
     return () => controller.abort();
   }, []);
 
@@ -152,11 +148,8 @@ export default function SubmissionFlow() {
     if (reason.length < MINIMUMS.improvementReason)
       next.improvementReason = "Say how this would make school better.";
 
-    if (!form.isAnonymous && form.studentEmail.trim()) {
-      const email = form.studentEmail.trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email))
-        next.studentEmail = "That doesn't look like an email address.";
-    }
+    if (!form.studentName.trim()) next.studentName = "Enter your name.";
+
     return next;
   }
 
@@ -317,9 +310,7 @@ export default function SubmissionFlow() {
           description: form.description.trim(),
           category: form.category,
           improvementReason: form.improvementReason.trim(),
-          isAnonymous: form.isAnonymous,
-          studentName: form.isAnonymous ? "" : form.studentName.trim(),
-          studentEmail: form.isAnonymous ? "" : form.studentEmail.trim(),
+          studentName: form.studentName.trim(),
           turnstileToken: turnstileToken ?? undefined,
           website: "",
         }),
@@ -329,7 +320,12 @@ export default function SubmissionFlow() {
         const data = (await response.json().catch(() => ({}))) as {
           error?: string;
           fields?: Record<string, string>;
+          code?: string;
         };
+        if (data.code === "sign_in_required") {
+          window.location.href = "/my-ideas/login";
+          return;
+        }
         if (data.fields) setErrors(data.fields);
         setFormError(data.error ?? "Something went wrong. Please try again.");
         setPhase("form");
@@ -339,7 +335,6 @@ export default function SubmissionFlow() {
 
       // Saved and confirmed by the database — only now do we celebrate.
       setPaperTitle(form.title.trim());
-      setSavedToAccount(Boolean(viewerEmail && !form.isAnonymous));
       setPhase("animating");
       if (prefersReducedMotion) {
         setPhase("done");
@@ -373,7 +368,6 @@ export default function SubmissionFlow() {
     setErrors({});
     setFormError(null);
     setPaperTitle("");
-    setSavedToAccount(false);
     setTurnstileToken(null);
     setTurnstileReset((n) => n + 1);
     setPhase("form");
@@ -442,17 +436,27 @@ export default function SubmissionFlow() {
                     >
                       {/* --- the actual form ------------------------------ */}
                       <div data-form-body className="p-6 sm:p-9">
-                        <SuggestionFormFields
-                          form={form}
-                          errors={errors}
-                          formError={formError}
-                          busy={busy}
-                          onChange={update}
-                          onSubmit={handleSubmit}
-                          onToken={setTurnstileToken}
-                          turnstileReset={turnstileReset}
-                          viewerEmail={viewerEmail}
-                        />
+                        {viewerEmail === undefined ? (
+                          <div aria-hidden className="animate-pulse space-y-4">
+                            <div className="h-4 w-1/3 rounded bg-paper-deep" />
+                            <div className="h-8 w-2/3 rounded bg-paper-deep" />
+                            <div className="h-24 rounded bg-paper-deep" />
+                          </div>
+                        ) : viewerEmail === null ? (
+                          <SignInGate />
+                        ) : (
+                          <SuggestionFormFields
+                            form={form}
+                            errors={errors}
+                            formError={formError}
+                            busy={busy}
+                            onChange={update}
+                            onSubmit={handleSubmit}
+                            onToken={setTurnstileToken}
+                            turnstileReset={turnstileReset}
+                            viewerEmail={viewerEmail}
+                          />
+                        )}
                       </div>
 
                       {/* --- what it becomes: a sheet of paper ------------ */}
@@ -521,16 +525,14 @@ export default function SubmissionFlow() {
                 helping improve our school.
               </motion.p>
 
-              {savedToAccount && (
-                <motion.a
-                  {...rise(0.4)}
-                  href="/my-ideas"
-                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12.5px] font-semibold text-emerald-900"
-                >
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-                  Saved to My ideas — track its progress
-                </motion.a>
-              )}
+              <motion.a
+                {...rise(0.4)}
+                href="/my-ideas"
+                className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12.5px] font-semibold text-emerald-900"
+              >
+                <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+                Saved to My ideas — track its progress
+              </motion.a>
 
               {/* The button arrives last, once there is something to leave. */}
               <motion.div {...rise(0.52)} className="mt-7">
@@ -758,98 +760,45 @@ function SuggestionFormFields({
           />
         </Field>
 
-        {/* ---- identity (entirely optional) ---- */}
+        {/* ---- identity (required: verified name + email) ---- */}
         <div className="rounded-[12px] border border-rule bg-paper-deep/50 p-4 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-rule pb-4">
-            <div>
-              <p className="text-sm font-semibold text-navy">Want to follow its progress?</p>
-              <p className="mt-0.5 text-[12.5px] text-navy-soft">
-                {viewerEmail
-                  ? `Tracking is on for ${viewerEmail}`
-                  : "Sign in before sending and it will appear in My ideas."}
-              </p>
-            </div>
-            {viewerEmail ? (
-              <a href="/my-ideas" className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[12px] font-semibold text-emerald-900">
-                My ideas
-              </a>
-            ) : (
-              <a href="/my-ideas/login" className="btn-quiet px-3 py-1.5 text-[12.5px]">
-                Sign in to track
-              </a>
-            )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field id="studentName" label="Your name" error={errors.studentName}>
+              <input
+                id="studentName"
+                name="studentName"
+                type="text"
+                value={form.studentName}
+                maxLength={LIMITS.name}
+                disabled={busy}
+                onChange={(e) => onChange("studentName", e.target.value)}
+                placeholder="Jordan R."
+                className={`field ${errors.studentName ? "field-error" : ""}`}
+                autoComplete="name"
+                required
+              />
+            </Field>
+            <Field id="studentEmail" label="School email">
+              <input
+                id="studentEmail"
+                type="email"
+                value={viewerEmail ?? ""}
+                readOnly
+                disabled
+                className="field bg-paper-deep text-navy-soft"
+              />
+            </Field>
           </div>
-          <label className="flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              checked={form.isAnonymous}
-              disabled={busy}
-              onChange={(e) => onChange("isAnonymous", e.target.checked)}
-              className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-[#e24e1b]"
-            />
-            <span className="text-sm">
-              <span className="font-semibold text-navy">Submit without my name</span>
-              <span className="mt-0.5 block text-navy-soft">
-                Your idea arrives completely anonymously. We won&rsquo;t be able to reach you
-                about it or connect it to My ideas.
-              </span>
-            </span>
-          </label>
-
-          <AnimatePresence initial={false}>
-            {!form.isAnonymous && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: EASE_OUT }}
-                className="overflow-hidden"
-              >
-                <div className="grid gap-4 pt-5 sm:grid-cols-2">
-                  <Field id="studentName" label="Name" hint="Optional" error={errors.studentName}>
-                    <input
-                      id="studentName"
-                      name="studentName"
-                      type="text"
-                      value={form.studentName}
-                      maxLength={LIMITS.name}
-                      disabled={busy}
-                      onChange={(e) => onChange("studentName", e.target.value)}
-                      placeholder="Jordan R."
-                      className={`field ${errors.studentName ? "field-error" : ""}`}
-                      autoComplete="name"
-                    />
-                  </Field>
-                  <Field
-                    id="studentEmail"
-                    label="Email"
-                    hint="Optional"
-                    error={errors.studentEmail}
-                  >
-                    <input
-                      id="studentEmail"
-                      name="studentEmail"
-                      type="email"
-                      value={form.studentEmail}
-                      maxLength={LIMITS.email}
-                      disabled={busy}
-                      onChange={(e) => onChange("studentEmail", e.target.value)}
-                      placeholder="you@school.org"
-                      className={`field ${errors.studentEmail ? "field-error" : ""}`}
-                      autoComplete="email"
-                    />
-                  </Field>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <p className="mt-3 text-[12.5px] leading-relaxed text-navy-soft">
+            <span className="font-semibold text-navy">Please use your actual name and school
+            email.</span> Your identity is visible only to the two co-presidents.
+          </p>
         </div>
 
         <p className="text-[13px] leading-relaxed text-navy-soft">
           <span className="font-semibold text-navy">Your privacy.</span> Suggestions go to
           the student-government co-presidents and are not posted publicly — there is no
-          voting and no commenting. If you leave your name and email out, your suggestion is
-          saved without them.
+          voting and no commenting.
         </p>
 
         <Turnstile onToken={onToken} resetSignal={turnstileReset} />
@@ -875,6 +824,32 @@ function SuggestionFormFields({
         </button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Shown instead of the form when nobody is signed in. Every new suggestion
+ * now needs a verified school identity, so there is no anonymous fallback
+ * here — signing in is the only way in.
+ */
+function SignInGate() {
+  return (
+    <div className="py-2 text-center sm:py-4">
+      <p className="eyebrow">Make your voice count</p>
+      <h2 className="mt-2 text-[24px] leading-tight font-bold text-navy sm:text-[28px]">
+        Sign in with your school email
+      </h2>
+      <p className="mx-auto mt-3 max-w-sm text-[14px] leading-relaxed text-navy-soft">
+        We ask every idea to carry a verified name and school email now, so the
+        co-presidents know who to follow up with.{" "}
+        <span className="font-semibold text-navy">
+          Your identity is visible only to the two co-presidents.
+        </span>
+      </p>
+      <a href="/my-ideas/login" className="btn-primary mt-6 inline-flex">
+        Sign in to submit an idea
+      </a>
+    </div>
   );
 }
 

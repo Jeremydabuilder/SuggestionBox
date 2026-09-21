@@ -3,7 +3,7 @@ import { suggestionSchema, fieldErrors, LIMITS } from "@/lib/validation";
 import { sanitizeLine, sanitizeText } from "@/lib/sanitize";
 import { checkRateLimit, clientIpFrom, hashIp, recordSubmission } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/turnstile";
-import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { detectDuplicatesFor } from "@/lib/duplicates/service";
 
 export const runtime = "nodejs";
@@ -34,20 +34,16 @@ export async function POST(request: Request) {
     }
   }
 
-  // ---- 2. Sanitize before validating -------------------------------------
+  // ---- 2. Sanitize before validating --------------------------------------
+  // studentEmail is deliberately never read from the client here — the
+  // verified session's own email is the only source, checked in step 5.
   const input = payload as Record<string, unknown>;
-  const isAnonymous = input.isAnonymous === true;
   const cleaned = {
     title: sanitizeLine(input.title, LIMITS.title),
     description: sanitizeText(input.description, LIMITS.description),
     category: typeof input.category === "string" ? input.category : "",
     improvementReason: sanitizeText(input.improvementReason, LIMITS.improvementReason),
-    isAnonymous,
-    // An anonymous submission carries no identifying details at all.
-    studentName: isAnonymous ? "" : sanitizeLine(input.studentName, LIMITS.name),
-    studentEmail: isAnonymous
-      ? ""
-      : sanitizeLine(input.studentEmail, LIMITS.email).toLowerCase(),
+    studentName: sanitizeLine(input.studentName, LIMITS.name),
     turnstileToken: typeof input.turnstileToken === "string" ? input.turnstileToken : undefined,
   };
 
@@ -60,7 +56,20 @@ export async function POST(request: Request) {
   }
   const value = parsed.data;
 
-  // ---- 3. Rate limit -----------------------------------------------------
+  // ---- 3. Require a verified, signed-in student ---------------------------
+  // Every new suggestion needs a real, Supabase-verified identity. The name
+  // above is the only thing we take the student's word for; the email comes
+  // only from the session Supabase itself vouches for.
+  const sessionClient = await createSupabaseServerClient();
+  const { data: { user } } = await sessionClient.auth.getUser();
+  if (!user?.email) {
+    return NextResponse.json(
+      { error: "Sign in with your school email before submitting an idea.", code: "sign_in_required" },
+      { status: 401 },
+    );
+  }
+
+  // ---- 4. Rate limit -------------------------------------------------------
   const ip = clientIpFrom(request.headers);
   const ipHash = hashIp(ip);
   const limit = await checkRateLimit(ipHash);
@@ -74,7 +83,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // ---- 4. Bot protection -------------------------------------------------
+  // ---- 5. Bot protection ---------------------------------------------------
   const turnstile = await verifyTurnstile(value.turnstileToken, ip);
   if (!turnstile.ok) {
     return NextResponse.json(
@@ -83,25 +92,25 @@ export async function POST(request: Request) {
     );
   }
 
-  // ---- 5. Save -----------------------------------------------------------
-  const sessionClient = await createSupabaseServerClient();
-  const { data: { user } } = await sessionClient.auth.getUser();
-  const service = createSupabaseServiceClient();
-  const row: Record<string, unknown> = {
+  // ---- 6. Save ---------------------------------------------------------
+  // Inserted on the SESSION client, not the service client: this is what
+  // makes the RLS policy from 20260923000000_verified_student_identity.sql
+  // actually run against this request, on top of the checks above. The
+  // student's own verified email — never anything the client sent — is what
+  // gets stored.
+  const row = {
     title: value.title,
     description: value.description,
     category: value.category,
     improvement_reason: value.improvementReason,
-    student_name: value.studentName ? value.studentName : null,
-    student_email: value.studentEmail ? value.studentEmail : null,
-    is_anonymous: value.isAnonymous,
+    student_name: value.studentName,
+    student_email: user.email.toLowerCase(),
+    is_anonymous: false,
+    submitter_user_id: user.id,
     status: "new",
     is_read: false,
   };
-  // Omitting the field entirely for ordinary submissions keeps deployment
-  // backward-compatible until the optional tracking migration is applied.
-  if (user && !value.isAnonymous) row.submitter_user_id = user.id;
-  const { data, error } = await service
+  const { data, error } = await sessionClient
     .from("suggestions")
     .insert(row)
     .select("id, created_at")

@@ -331,6 +331,8 @@ when the service exists).
 | `CRON_SECRET` | no | Required only if the digest is on |
 | `GROQ_API_KEY` | no | Enables the president-only weekly meeting agent; keep it server-side |
 | `GROQ_MODEL` | no | Optional model override; normally leave blank so the tested fallback list is used |
+| `STUDENT_EMAIL_DOMAIN` | no | If set (e.g. `ourschool.org`), restricts student sign-in to that email domain. Server-enforced; never hard-code a real domain in the repo |
+| `NEXT_PUBLIC_STUDENT_EMAIL_DOMAIN` | no | Same value as above, shown to students as a UI hint only — the real restriction is server-side |
 
 There is **no** `PRESIDENT_EMAILS` variable. The co-presidents live in Supabase
 (step 3), and nowhere else.
