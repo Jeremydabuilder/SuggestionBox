@@ -8,7 +8,7 @@ import {
   CLASSIFIER_LIMITS,
   parseClassifierOutput,
 } from "@/lib/chat-classifier";
-import { generateJsonCompletion, GroqRequestError } from "@/lib/groq";
+import { generateClassifierCompletion, CLASSIFIER_MAX_REQUESTS } from "@/lib/groq";
 import { checkChatRateLimit } from "@/lib/chat-rate-limit";
 import { boundTextForPrompt } from "@/lib/text-bounds";
 import { parseIntentArgs, type RouteDecision } from "@/lib/chat-intents";
@@ -30,6 +30,8 @@ export interface RouteMetadata {
   needs_clarification: boolean;
   duration_bucket: string;
   error_category?: string;
+  /** Exact count of Groq HTTP requests made for this routing attempt. 0 for deterministic routes. Never exceeds CLASSIFIER_MAX_REQUESTS (2). */
+  groq_request_count: number;
 }
 
 function durationBucket(ms: number): string {
@@ -75,64 +77,78 @@ export async function routeChatMessage(
   const start = Date.now();
   const message = boundTextForPrompt(rawMessage, CLASSIFIER_LIMITS.message);
 
-  const finish = (decision: RouteDecision, source: RouteMetadata["route_source"], errorCategory?: string): RoutedMessage => {
+  const finish = (
+    decision: RouteDecision,
+    source: RouteMetadata["route_source"],
+    groqRequestCount: number,
+    errorCategory?: string,
+  ): RoutedMessage => {
     logRouteMetadata({
       route_source: source,
       intent: decision.intent,
       needs_clarification: decision.needsClarification,
       duration_bucket: durationBucket(Date.now() - start),
+      groq_request_count: groqRequestCount,
       ...(errorCategory ? { error_category: errorCategory } : {}),
     });
     return { decision, execution: executeRoute(decision) };
   };
 
   if (!message) {
-    return finish(fallbackDecision("What would you like help with?"), "fallback", "empty_message");
+    return finish(fallbackDecision("What would you like help with?"), "fallback", 0, "empty_message");
   }
 
   // Deterministic routing first, and always — this makes zero Groq calls.
   const deterministic = routeDeterministically(message);
   if (deterministic) {
-    return finish(deterministic, "deterministic");
+    return finish(deterministic, "deterministic", 0);
   }
 
   if (!serverEnv.groqApiKey) {
     return finish(
       fallbackDecision("I can't reach the AI classifier right now — try one of the suggested prompts, or set up GROQ_API_KEY."),
       "fallback",
+      0,
       "unconfigured",
     );
   }
 
   const limit = checkChatRateLimit(`chat:classify:${session.email}`, 20, 5 * 60_000);
   if (!limit.allowed) {
-    return finish(fallbackDecision("You're sending requests quickly — wait a moment and try again."), "fallback", "rate_limited");
+    return finish(fallbackDecision("You're sending requests quickly — wait a moment and try again."), "fallback", 0, "rate_limited");
   }
 
-  try {
-    const userPrompt = buildClassifierUserPrompt(message, recentContext);
-    const { content } = await generateJsonCompletion(CLASSIFIER_SYSTEM_PROMPT, userPrompt, {
-      maxTokens: CLASSIFIER_LIMITS.maxTokens,
-      timeoutMs: CLASSIFIER_LIMITS.timeoutMs,
-    });
+  // At most CLASSIFIER_MAX_REQUESTS (2) Groq HTTP requests happen below:
+  // the configured model once, and — only on a model-incompatibility
+  // signal — exactly one explicit fallback model. Never more, never a
+  // silent multi-model cycle. See generateClassifierCompletion's own doc
+  // comment for the exact rule.
+  const userPrompt = buildClassifierUserPrompt(message, recentContext);
+  const outcome = await generateClassifierCompletion(CLASSIFIER_SYSTEM_PROMPT, userPrompt, {
+    maxTokens: CLASSIFIER_LIMITS.maxTokens,
+    timeoutMs: CLASSIFIER_LIMITS.timeoutMs,
+  });
 
-    const parsed = parseClassifierOutput(content);
-    if (!parsed.ok) {
-      return finish(fallbackDecision("I couldn't quite understand that — could you rephrase it?"), "fallback", parsed.reason);
-    }
-
-    return finish(parsed.decision, "ai");
-  } catch (error) {
-    const category =
-      error instanceof GroqRequestError
-        ? error.status === 429
-          ? "rate_limited"
-          : error.status === 401 || error.status === 403
-            ? "unauthorized"
-            : "upstream_error"
-        : error instanceof Error && error.name === "AbortError"
-          ? "timeout"
-          : "network_error";
-    return finish(fallbackDecision("The AI classifier is unavailable right now — try one of the suggested prompts."), "fallback", category);
+  if (!outcome.ok) {
+    return finish(
+      fallbackDecision("The AI classifier is unavailable right now — try one of the suggested prompts."),
+      "fallback",
+      outcome.requestCount,
+      outcome.errorCategory,
+    );
   }
+
+  const parsed = parseClassifierOutput(outcome.content);
+  if (!parsed.ok) {
+    return finish(
+      fallbackDecision("I couldn't quite understand that — could you rephrase it?"),
+      "fallback",
+      outcome.requestCount,
+      parsed.reason,
+    );
+  }
+
+  return finish(parsed.decision, "ai", outcome.requestCount);
 }
+
+export { CLASSIFIER_MAX_REQUESTS };

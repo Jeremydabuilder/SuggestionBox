@@ -103,31 +103,82 @@ export async function generateMeetingBrief(records: AnonymousSuggestion[], scope
   throw lastError ?? new Error("No compatible Groq model was available.");
 }
 
+/** The hard ceiling: configured model, plus at most one explicit fallback. Never more. */
+export const CLASSIFIER_MAX_REQUESTS = 2;
+
+export type ClassifierErrorCategory =
+  | "rate_limited"
+  | "unauthorized"
+  | "upstream_error"
+  | "timeout"
+  | "network_error"
+  | "no_compatible_model";
+
+export type ClassifierCallOutcome =
+  | { ok: true; content: string; model: string; requestCount: number }
+  | { ok: false; requestCount: number; errorCategory: ClassifierErrorCategory };
+
+function classifierErrorCategory(error: unknown): ClassifierErrorCategory {
+  if (error instanceof GroqRequestError) {
+    if (error.status === 429) return "rate_limited";
+    if (error.status === 401 || error.status === 403) return "unauthorized";
+    return "upstream_error";
+  }
+  if (error instanceof Error && error.name === "AbortError") return "timeout";
+  return "network_error";
+}
+
 /**
- * Generic single-call JSON completion, for callers that aren't the meeting
- * brief (e.g. the intent classifier). Reuses the same model discovery/
- * fallback/timeout machinery as generateMeetingBrief — the configured
- * GROQ_MODEL is respected, and a missing/incompatible model tries the next
- * known-good one rather than silently escalating to something expensive.
- * Returns the raw JSON string; the caller is responsible for parsing and
- * validating it against its own schema.
+ * Bounded classifier completion: the configured model gets exactly one
+ * request. If — and only if — that model itself is unavailable or
+ * incompatible (400/404/422, the same "this model doesn't exist/doesn't
+ * support this request" signal generateMeetingBrief already treats as
+ * model-not-request trouble), this makes exactly one more request to a
+ * single explicit fallback (the next entry in the ranked candidate list)
+ * and stops — it never cycles through the full four-model list the way
+ * generateMeetingBrief does. A rate limit, auth failure, timeout, or
+ * network error on either attempt is NOT retried with another model —
+ * those aren't fixed by a different model, and every caller gets back the
+ * exact number of requests actually made (0, 1, or 2), never a silent
+ * unbounded retry loop.
  */
-export async function generateJsonCompletion(
+export async function generateClassifierCompletion(
   systemPrompt: string,
   userPrompt: string,
   options: { maxTokens?: number; timeoutMs?: number } = {},
-): Promise<{ content: string; model: string }> {
-  let lastError: unknown;
-  for (const model of await candidateModels()) {
+): Promise<ClassifierCallOutcome> {
+  const candidates = await candidateModels();
+  const primary = candidates[0];
+  if (!primary) return { ok: false, requestCount: 0, errorCategory: "no_compatible_model" };
+
+  let requestCount = 0;
+  try {
+    requestCount += 1;
+    const content = await askJsonModel(primary, systemPrompt, userPrompt, options);
+    return { ok: true, content, model: primary, requestCount };
+  } catch (error) {
+    if (!(error instanceof GroqRequestError) || ![400, 404, 422].includes(error.status)) {
+      return { ok: false, requestCount, errorCategory: classifierErrorCategory(error) };
+    }
+
+    const fallback = candidates[1];
+    if (!fallback) return { ok: false, requestCount, errorCategory: "no_compatible_model" };
+
     try {
-      const content = await askJsonModel(model, systemPrompt, userPrompt, options);
-      return { content, model };
-    } catch (error) {
-      lastError = error;
-      if (!(error instanceof GroqRequestError) || ![400, 404, 422].includes(error.status)) throw error;
+      requestCount += 1;
+      const content = await askJsonModel(fallback, systemPrompt, userPrompt, options);
+      return { ok: true, content, model: fallback, requestCount };
+    } catch (fallbackError) {
+      // Both the primary and the one allowed fallback turned out to be
+      // model-incompatible — call that what it is rather than a generic
+      // upstream error, even though no third attempt will be made.
+      const category =
+        fallbackError instanceof GroqRequestError && [400, 404, 422].includes(fallbackError.status)
+          ? "no_compatible_model"
+          : classifierErrorCategory(fallbackError);
+      return { ok: false, requestCount, errorCategory: category };
     }
   }
-  throw lastError ?? new Error("No compatible Groq model was available.");
 }
 
 async function askJsonModel(

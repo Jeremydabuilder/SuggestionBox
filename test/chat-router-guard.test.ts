@@ -117,9 +117,13 @@ describe("chat-router.ts — identity boundary and single-call discipline", () =
     assert.match(signature, /session:\s*PresidentSession/);
   });
 
-  test("the AI classifier is called at most once per routing attempt (no retry loop around it)", () => {
-    const occurrences = (routerSource.match(/generateJsonCompletion\(/g) ?? []).length;
+  test("chat-router.ts calls the bounded classifier completion exactly once per routing attempt — no loop around it", () => {
+    const occurrences = (routerSource.match(/generateClassifierCompletion\(/g) ?? []).length;
     assert.equal(occurrences, 1);
+  });
+
+  test("every logged route carries the exact Groq request count", () => {
+    assert.match(routerSource, /groq_request_count/);
   });
 });
 
