@@ -329,9 +329,32 @@ when the service exists).
 | `RESEND_API_KEY` | no | Digest only |
 | `DIGEST_FROM_EMAIL` | no | Digest only |
 | `CRON_SECRET` | no | Required only if the digest is on |
+| `GROQ_API_KEY` | no | Enables the president-only weekly meeting agent; keep it server-side |
+| `GROQ_MODEL` | no | Optional model override; normally leave blank so the tested fallback list is used |
 
 There is **no** `PRESIDENT_EMAILS` variable. The co-presidents live in Supabase
 (step 3), and nowhere else.
+
+### Optional: free weekly meeting agent
+
+The private dashboard includes a **Weekly meeting agent** that turns recent or
+active suggestions into a timed agenda, themes, quick wins, decisions and
+follow-ups. It is disabled until `GROQ_API_KEY` is set and does not affect any
+other part of the site.
+
+1. Create a key in the Groq console. Do not paste it into chat or GitHub.
+2. In Render, open the Web Service → **Environment** → add `GROQ_API_KEY`.
+3. Leave `GROQ_MODEL` blank. The app starts with `openai/gpt-oss-20b` and has a
+   fallback if that model is unavailable. You can override it later without a
+   code change.
+4. Save and redeploy. The button appears only inside the authenticated
+   president dashboard.
+
+The browser never receives the key. The server removes student names, email
+addresses, authentication IDs and database IDs before calling Groq. The agent
+is read-only: it recommends work but cannot change a suggestion, send a
+message, or promise an outcome. If the free quota is unavailable, the regular
+dashboard continues to work.
 
 For Turnstile keys: [Cloudflare dashboard → Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)
 → **Add site**, choose the **Managed** widget, and add your Render address plus
@@ -368,7 +391,7 @@ stays the database and the auth provider.
    | Build command | `npm ci && npm run build` |
    | Start command | `npm start` |
    | Health check path | `/api/health` |
-   | Instance type | **Starter** or above (see below) |
+   | Instance type | **Free** (see the cold-start note below) |
 
    These are the project's real scripts — `npm start` runs `next start`, which
    binds the `PORT` Render provides. Nothing needs overriding.
@@ -392,11 +415,10 @@ stays the database and the auth provider.
 
 ### A note on the instance type
 
-On the **Free** instance type Render spins the service down when idle, and the
-cold start can take longer than someone's patience after clicking a magic-link
-email — which looks exactly like broken authentication. **Starter** or above
-stays warm. If you do use Free, expect the first request after a quiet period
-to be slow, and warn your co-presidents.
+On the **Free** instance type Render spins the service down when idle. Expect
+the first request after a quiet period to be slow. If a magic link opens during
+a cold start, leave the tab open while the service wakes up instead of clicking
+the link repeatedly. The project does not require a paid Render plan.
 
 ### Point Supabase at the Render address
 

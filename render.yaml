@@ -16,10 +16,9 @@ services:
   - type: web
     name: suggestion-box
     runtime: node
-    # `starter` keeps the service always on. The free plan spins down when
-    # idle, and a cold start can outlast the click on a magic-link email,
-    # which looks exactly like broken authentication.
-    plan: starter
+    # Free is enough for a school project. It can spin down while idle, so
+    # the first request after a quiet period may take longer to load.
+    plan: free
     branch: main
     autoDeploy: true
 
@@ -54,6 +53,12 @@ services:
       - key: NEXT_PUBLIC_TURNSTILE_SITE_KEY
         sync: false
       - key: TURNSTILE_SECRET_KEY
+        sync: false
+
+      # Optional president-only meeting agent. Private and server-side.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
         sync: false
 
       # The daily digest stays off for launch. Nothing else depends on it.

@@ -13,6 +13,14 @@ import {
 } from "@/lib/types";
 import { rescanAllDuplicates } from "@/lib/duplicates/service";
 import { serverEnv } from "@/lib/env";
+import {
+  anonymizeSuggestions,
+  meetingScopeSchema,
+  selectSuggestionsForScope,
+  type MeetingBrief,
+  type MeetingScope,
+} from "@/lib/meeting-agent";
+import { generateMeetingBrief, meetingAgentError } from "@/lib/groq";
 
 export type ActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? { data?: undefined } : { data: T }))
@@ -21,6 +29,8 @@ export type ActionResult<T = undefined> =
 function fail(error: string): { ok: false; error: string } {
   return { ok: false, error };
 }
+
+const meetingRuns = new Map<string, number>();
 
 /* ------------------------------------------------------------------ */
 /* Sign in — a magic link, and only ever to an approved co-president.  */
@@ -68,6 +78,73 @@ export async function signOut(): Promise<void> {
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
   revalidatePath("/president");
+}
+
+/* ------------------------------------------------------------------ */
+/* Weekly meeting agent — private, read-only, and server-side.         */
+/* ------------------------------------------------------------------ */
+
+export async function prepareWeeklyMeeting(
+  requestedScope: MeetingScope,
+): Promise<ActionResult<MeetingBrief>> {
+  const session = await getPresidentSession();
+  if (!session) return fail("Your session has expired. Sign in again.");
+
+  const scope = meetingScopeSchema.safeParse(requestedScope);
+  if (!scope.success) return fail("Choose a valid meeting scope.");
+  if (!serverEnv.groqApiKey) {
+    return fail("The meeting agent is ready, but GROQ_API_KEY has not been added to Render yet.");
+  }
+
+  const now = Date.now();
+  const lastRun = meetingRuns.get(session.email) ?? 0;
+  if (now - lastRun < 30_000) return fail("Please wait 30 seconds before generating another brief.");
+  meetingRuns.set(session.email, now);
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("suggestions")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+  if (error) return fail("The inbox could not be read. Try again in a moment.");
+
+  const selected = selectSuggestionsForScope(
+    (data ?? []) as import("@/lib/types").Suggestion[],
+    scope.data,
+  );
+  const { records, sources } = anonymizeSuggestions(selected);
+  if (records.length === 0) return fail("There are no suggestions in that time range yet.");
+
+  try {
+    const generated = await generateMeetingBrief(records, scope.data);
+    const allowedRefs = new Set(sources.map((source) => source.ref));
+    const keepKnown = (refs: string[]) => [...new Set(refs.filter((ref) => allowedRefs.has(ref)))];
+    const brief = generated.brief;
+
+    return {
+      ok: true,
+      data: {
+        ...brief,
+        themes: brief.themes.map((item) => ({ ...item, suggestionRefs: keepKnown(item.suggestionRefs) })),
+        agenda: brief.agenda.map((item) => ({ ...item, suggestionRefs: keepKnown(item.suggestionRefs) })),
+        quickWins: brief.quickWins.map((item) => ({ ...item, suggestionRefs: keepKnown(item.suggestionRefs) })),
+        decisionsNeeded: brief.decisionsNeeded.map((item) => ({ ...item, suggestionRefs: keepKnown(item.suggestionRefs) })),
+        followUps: brief.followUps.map((item) => ({ ...item, suggestionRefs: keepKnown(item.suggestionRefs) })),
+        generatedAt: new Date().toISOString(),
+        model: generated.model,
+        sourceCount: records.length,
+        sources,
+      },
+    };
+  } catch (agentError) {
+    console.error(
+      "[meeting-agent] generation failed:",
+      agentError instanceof Error ? agentError.message : "unknown error",
+    );
+    return fail(meetingAgentError(agentError));
+  }
 }
 
 /* ------------------------------------------------------------------ */

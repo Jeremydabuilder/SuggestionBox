@@ -19,6 +19,7 @@ import {
 } from "@/lib/types";
 import { matchCountFor, relatedGroupSize } from "@/lib/duplicates";
 import { rescanDuplicates } from "@/app/president/actions";
+import MeetingAgent from "./MeetingAgent";
 
 type SortOrder = "newest" | "oldest";
 type ReadFilter = "all" | "unread" | "read";
@@ -29,10 +30,12 @@ export default function PresidentPanel({
   suggestions,
   matches,
   currentEmail,
+  meetingAgentConfigured,
 }: {
   suggestions: Suggestion[];
   matches: SuggestionMatch[];
   currentEmail: string;
+  meetingAgentConfigured: boolean;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -382,6 +385,8 @@ export default function PresidentPanel({
           ))}
         </div>
       </section>
+
+      <MeetingAgent configured={meetingAgentConfigured} />
 
       {/* ---- toolbar --------------------------------------------------- */}
       <div className="paper mt-5 p-3.5 sm:p-4">

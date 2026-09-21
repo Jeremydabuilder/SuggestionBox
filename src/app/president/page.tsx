@@ -3,6 +3,7 @@ import PresidentPanel from "@/components/president/PresidentPanel";
 import { getPresidentSession } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Suggestion, SuggestionMatch } from "@/lib/types";
+import { serverEnv } from "@/lib/env";
 
 // The panel is always rendered fresh for the signed-in president.
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export default async function PresidentPage() {
           score: Number(m.score),
         }))}
         currentEmail={session.email}
+        meetingAgentConfigured={Boolean(serverEnv.groqApiKey)}
       />
     </main>
   );

@@ -61,6 +61,14 @@ export const serverEnv = {
   get ipHashSalt() {
     return optional("IP_HASH_SALT") ?? "suggestion-box-default-salt";
   },
+  /** Optional, president-only weekly meeting agent. Never exposed client-side. */
+  get groqApiKey() {
+    return optional("GROQ_API_KEY");
+  },
+  /** Override if Groq retires the default model; no code change required. */
+  get groqModel() {
+    return optional("GROQ_MODEL");
+  },
 } as const;
 
 /** Safe for the browser — inlined by Next.js at build time. */
