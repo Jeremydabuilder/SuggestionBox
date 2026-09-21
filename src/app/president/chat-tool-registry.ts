@@ -86,7 +86,7 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     groqSynthesisEligible: true,
     maxRecords: 120,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Generate a draft meeting brief from the current inbox.",
   },
   meeting_history: {
@@ -95,7 +95,7 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     groqSynthesisEligible: false,
     maxRecords: 50,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "List or open saved meeting briefs.",
   },
   list_decisions: {
@@ -104,7 +104,7 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     groqSynthesisEligible: false,
     maxRecords: 200,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "List, search, or filter the decision log.",
   },
   list_actions: {
@@ -113,7 +113,7 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     groqSynthesisEligible: false,
     maxRecords: 200,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "List or filter shared action items.",
   },
   proposal_builder: {
@@ -207,16 +207,27 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "help"; message: string }
   | { status: "ok"; kind: "clarification"; question: string }
   | { status: "ok"; kind: "memory_manager"; action: "list" | "search"; query?: string }
+  | { status: "ok"; kind: "meeting_prep" }
+  | { status: "ok"; kind: "meeting_history" }
+  | { status: "ok"; kind: "list_decisions" }
+  | { status: "ok"; kind: "list_actions" }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
 /**
  * Looks the route up in the fixed registry and returns an honest typed
  * result. Nothing here performs a mutation, a database read, or a Groq
- * call — memory_manager only ever tells the caller to open the Memory
- * Manager UI, which itself goes through the Stage 2 propose/confirm
- * actions for every actual write. An intent whose
- * registry status isn't "implemented" always comes back as `not_available`,
- * never a fabricated record or a simulated success.
+ * call — memory_manager, meeting_prep, meeting_history, list_decisions,
+ * and list_actions only ever tell the caller which existing, already-
+ * secured panel to open (MemoryManagerPanel, MeetingAgent, MeetingHistory,
+ * DecisionLog, ActionItems). Each of those panels fetches its own data and
+ * performs its own mutations through the same session-checked,
+ * RLS-enforced server actions that ran before this chat existed — every
+ * create/edit/delete there already requires the president to review a
+ * form and click an explicit save/delete button, which is the same
+ * "nothing happens without an explicit act" guarantee the Stage 1/2
+ * confirmation-card boundary gives chat-authored memory changes. An
+ * intent whose registry status isn't "implemented" always comes back as
+ * `not_available`, never a fabricated record or a simulated success.
  */
 export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "clarification_needed") {
@@ -232,6 +243,22 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "memory_manager" && entry.status === "implemented") {
     const args = decision.args as { action?: "list" | "search"; query?: string };
     return { status: "ok", kind: "memory_manager", action: args.action ?? "list", query: args.query };
+  }
+
+  if (decision.intent === "meeting_prep" && entry.status === "implemented") {
+    return { status: "ok", kind: "meeting_prep" };
+  }
+
+  if (decision.intent === "meeting_history" && entry.status === "implemented") {
+    return { status: "ok", kind: "meeting_history" };
+  }
+
+  if (decision.intent === "list_decisions" && entry.status === "implemented") {
+    return { status: "ok", kind: "list_decisions" };
+  }
+
+  if (decision.intent === "list_actions" && entry.status === "implemented") {
+    return { status: "ok", kind: "list_actions" };
   }
 
   return {

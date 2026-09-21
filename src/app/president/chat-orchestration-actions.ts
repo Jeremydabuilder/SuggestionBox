@@ -55,6 +55,14 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     assistantContent = execution.question;
   } else if (execution.status === "ok" && execution.kind === "memory_manager") {
     assistantContent = "Opening Memory Manager.";
+  } else if (execution.status === "ok" && execution.kind === "meeting_prep") {
+    assistantContent = "Opening Meeting Prep.";
+  } else if (execution.status === "ok" && execution.kind === "meeting_history") {
+    assistantContent = "Opening Meeting History.";
+  } else if (execution.status === "ok" && execution.kind === "list_decisions") {
+    assistantContent = "Opening the Decision Log.";
+  } else if (execution.status === "ok" && execution.kind === "list_actions") {
+    assistantContent = "Opening Action Items.";
   } else {
     assistantContent = execution.status === "not_available" ? execution.reason : "I couldn't process that just now.";
   }

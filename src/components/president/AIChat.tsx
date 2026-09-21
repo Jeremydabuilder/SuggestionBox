@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   createConversation,
   listConversations,
@@ -11,7 +11,14 @@ import {
 } from "@/app/president/chat-actions";
 import { sendChatMessage } from "@/app/president/chat-orchestration-actions";
 import type { ChatConversation, ChatMessage } from "@/lib/chat-store";
+import type { Suggestion } from "@/lib/types";
 import MemoryManagerPanel from "./MemoryManagerPanel";
+import MeetingAgent from "./MeetingAgent";
+import MeetingHistory from "./MeetingHistory";
+import DecisionLog, { type PrefillDecision } from "./DecisionLog";
+import ActionItems, { type PrefillAction } from "./ActionItems";
+
+type ToolPanel = "meeting_prep" | "meeting_history" | "decisions" | "actions" | null;
 
 const STARTER_PROMPTS = [
   "Prepare our next meeting",
@@ -40,8 +47,26 @@ const STARTER_PROMPTS = [
  * generating" — a Server Action call can't be genuinely cancelled from the
  * client once dispatched, so no stop control is shown; showing one would
  * be dishonest UI.
+ *
+ * Stage 5 connects Meeting Prep, Meeting History, the Decision Log, and
+ * Action Items: routing to one of those intents opens the same
+ * already-tested component that used to live behind its own tab, as a
+ * modal panel (the same pattern Memory Manager already uses). Every
+ * create/edit/delete inside those panels still goes through their own
+ * existing session-checked, RLS-enforced server actions and still
+ * requires the president to review a form and click an explicit
+ * save/delete button — chat only opens the door, it never fills in or
+ * submits anything on the president's behalf.
  */
-export default function AIChat() {
+export default function AIChat({
+  configured,
+  suggestions,
+  onOpenSuggestion,
+}: {
+  configured: boolean;
+  suggestions: Suggestion[];
+  onOpenSuggestion: (id: string) => void;
+}) {
   const [conversations, setConversations] = useState<ChatConversation[] | null>(null);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
   const [conversationQuery, setConversationQuery] = useState("");
@@ -61,7 +86,20 @@ export default function AIChat() {
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
+  const [toolPanel, setToolPanel] = useState<ToolPanel>(null);
+  const [decisionPrefill, setDecisionPrefill] = useState<PrefillDecision | null>(null);
+  const [actionPrefill, setActionPrefill] = useState<PrefillAction | null>(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  function addToDecisionLog(prefill: PrefillDecision) {
+    setDecisionPrefill(prefill);
+    setToolPanel("decisions");
+  }
+  function addToActionItems(prefill: PrefillAction) {
+    setActionPrefill(prefill);
+    setToolPanel("actions");
+  }
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const liveRegionRef = useRef<HTMLDivElement>(null);
@@ -143,8 +181,12 @@ export default function AIChat() {
     if (liveRegionRef.current) liveRegionRef.current.textContent = "New reply received.";
     await loadConversations();
 
-    if (result.data.intent === "memory_manager" && result.data.toolStatus === "ok") {
-      setMemoryManagerOpen(true);
+    if (result.data.toolStatus === "ok") {
+      if (result.data.intent === "memory_manager") setMemoryManagerOpen(true);
+      else if (result.data.intent === "meeting_prep") setToolPanel("meeting_prep");
+      else if (result.data.intent === "meeting_history") setToolPanel("meeting_history");
+      else if (result.data.intent === "list_decisions") setToolPanel("decisions");
+      else if (result.data.intent === "list_actions") setToolPanel("actions");
     }
   }
 
@@ -226,6 +268,15 @@ export default function AIChat() {
             aria-controls="chat-conversation-drawer"
           >
             {sidebarOpen ? "Hide conversations" : "Conversations"}
+          </button>
+          <button type="button" onClick={() => setToolPanel("meeting_history")} className="btn-quiet">
+            Meeting history
+          </button>
+          <button type="button" onClick={() => setToolPanel("decisions")} className="btn-quiet">
+            Decisions
+          </button>
+          <button type="button" onClick={() => setToolPanel("actions")} className="btn-quiet">
+            Actions
           </button>
           <button
             type="button"
@@ -451,6 +502,81 @@ export default function AIChat() {
       {memoryManagerOpen && selectedId && (
         <MemoryManagerPanel conversationId={selectedId} onClose={() => setMemoryManagerOpen(false)} />
       )}
+
+      {toolPanel && (
+        <ToolPanelModal title={TOOL_PANEL_TITLES[toolPanel]} onClose={() => setToolPanel(null)}>
+          {toolPanel === "meeting_prep" && (
+            <MeetingAgent
+              configured={configured}
+              onSaved={() => setHistoryRefresh((n) => n + 1)}
+              onViewHistory={() => setToolPanel("meeting_history")}
+              onAddDecision={addToDecisionLog}
+              onAddAction={addToActionItems}
+            />
+          )}
+          {toolPanel === "meeting_history" && (
+            <MeetingHistory refreshSignal={historyRefresh} onAddDecision={addToDecisionLog} onAddAction={addToActionItems} />
+          )}
+          {toolPanel === "decisions" && (
+            <DecisionLog
+              suggestions={suggestions}
+              onOpenSuggestion={onOpenSuggestion}
+              prefill={decisionPrefill}
+              onPrefillConsumed={() => setDecisionPrefill(null)}
+            />
+          )}
+          {toolPanel === "actions" && (
+            <ActionItems
+              suggestions={suggestions}
+              onOpenSuggestion={onOpenSuggestion}
+              prefill={actionPrefill}
+              onPrefillConsumed={() => setActionPrefill(null)}
+            />
+          )}
+        </ToolPanelModal>
+      )}
     </section>
+  );
+}
+
+const TOOL_PANEL_TITLES: Record<Exclude<ToolPanel, null>, string> = {
+  meeting_prep: "Meeting prep",
+  meeting_history: "Meeting history",
+  decisions: "Decision log",
+  actions: "Action items",
+};
+
+/**
+ * Shared modal chrome for the four workspace tools above, matching the
+ * dialog pattern MemoryManagerPanel and the old MeetingHistory detail
+ * panel already use (role="dialog", overlay, sticky header). Wider than
+ * MemoryManagerPanel since these render tables/forms, not a short list.
+ */
+function ToolPanelModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex items-end justify-center bg-navy/35 backdrop-blur-[2px] sm:items-center sm:p-6"
+    >
+      <div className="paper max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-b-none sm:rounded-[16px]">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-rule bg-white px-5 py-3.5">
+          <h2 className="text-lg font-bold text-navy">{title}</h2>
+          <button type="button" onClick={onClose} className="btn-quiet">
+            Close
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
   );
 }

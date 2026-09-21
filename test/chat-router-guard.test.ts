@@ -37,9 +37,12 @@ describe("registry safety boundary", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("as of Stage 4, only 'help', 'clarification_needed', and 'memory_manager' are marked implemented", () => {
+  test("as of Stage 5, 'help', 'clarification_needed', 'memory_manager', 'meeting_prep', 'meeting_history', 'list_decisions', and 'list_actions' are marked implemented", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
-    assert.deepEqual(new Set(implemented), new Set(["help", "clarification_needed", "memory_manager"]));
+    assert.deepEqual(
+      new Set(implemented),
+      new Set(["help", "clarification_needed", "memory_manager", "meeting_prep", "meeting_history", "list_decisions", "list_actions"]),
+    );
   });
 
   test("the registry file has no generic SQL, HTTP, shell, or dynamic-import capability", () => {
@@ -81,6 +84,21 @@ describe("executeRoute — honest results, never a fake record", () => {
     const result = executeRoute(decision);
     assert.equal(result.status, "ok");
     if (result.status === "ok" && result.kind === "clarification") assert.equal(result.question, "Which meeting?");
+  });
+
+  test("meeting_prep, meeting_history, list_decisions, and list_actions each return the panel-open kind matching their intent name, not a fabricated record", () => {
+    const cases: Array<[typeof CHAT_INTENTS[number], "meeting_prep" | "meeting_history" | "list_decisions" | "list_actions"]> = [
+      ["meeting_prep", "meeting_prep"],
+      ["meeting_history", "meeting_history"],
+      ["list_decisions", "list_decisions"],
+      ["list_actions", "list_actions"],
+    ];
+    for (const [intent, kind] of cases) {
+      const decision: RouteDecision = { intent, args: parseIntentArgs(intent, defaultArgsFor(intent)), confidence: "high", needsClarification: false, source: "deterministic" };
+      const result = executeRoute(decision);
+      assert.equal(result.status, "ok");
+      if (result.status === "ok") assert.equal(result.kind, kind);
+    }
   });
 
   test("every intent marked planned or not_connected returns not_available, never a fake success", () => {
@@ -139,7 +157,8 @@ describe("the pieces chat-router.ts wires together behave correctly on their own
     assert.notEqual(result, null);
     assert.equal(result!.source, "deterministic");
     const execution = executeRoute(result!);
-    assert.equal(execution.status, "not_available"); // list_actions isn't connected yet, but routing itself was deterministic
+    assert.equal(execution.status, "ok"); // list_actions is connected as of Stage 5, but routing itself was deterministic
+    if (execution.status === "ok") assert.equal(execution.kind, "list_actions");
   });
 
   test("help resolves deterministically and executes immediately", () => {
@@ -151,6 +170,25 @@ describe("the pieces chat-router.ts wires together behave correctly on their own
 
   test("ordinary conversational text returns null from the deterministic router — exactly what tells chat-router.ts to fall back to the classifier", () => {
     assert.equal(routeDeterministically("thanks, that was really helpful today"), null);
+  });
+});
+
+describe("Stage 5 tool panels — chat opens the door, it never mutates anything itself", () => {
+  const aiChatSource = read("src/components/president/AIChat.tsx");
+
+  test("AIChat.tsx never imports a Supabase client or a service-role helper", () => {
+    assert.doesNotMatch(aiChatSource, /createSupabaseServerClient|createSupabaseServiceClient/);
+  });
+
+  test("AIChat.tsx never calls a decision/action/meeting-brief mutation directly — those stay inside DecisionLog/ActionItems/MeetingAgent", () => {
+    assert.doesNotMatch(aiChatSource, /createDecision|updateDecision|deleteDecision|createActionItem|updateActionItem|setActionItemCompleted|deleteActionItem|saveMeetingBrief|updateMeetingBrief|archiveMeetingBrief|restoreMeetingBrief/);
+  });
+
+  test("the four workspace panels it renders are the same pre-existing, already-tested components — not new ones", () => {
+    assert.match(aiChatSource, /import MeetingAgent from ".\/MeetingAgent"/);
+    assert.match(aiChatSource, /import MeetingHistory from ".\/MeetingHistory"/);
+    assert.match(aiChatSource, /import DecisionLog, \{ type PrefillDecision \} from ".\/DecisionLog"/);
+    assert.match(aiChatSource, /import ActionItems, \{ type PrefillAction \} from ".\/ActionItems"/);
   });
 });
 
