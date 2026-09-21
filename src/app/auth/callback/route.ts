@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAuthorizedEmail } from "@/lib/auth";
+import { serverEnv } from "@/lib/env";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -31,7 +32,9 @@ export async function GET(request: Request) {
   }
 
   if (!signedIn) {
-    return NextResponse.redirect(new URL("/president/login?error=link", url.origin));
+    return NextResponse.redirect(
+      new URL("/president/login?error=link", `${serverEnv.siteUrl}/`),
+    );
   }
 
   // Signing in is not the same as being allowed in.
@@ -41,8 +44,14 @@ export async function GET(request: Request) {
 
   if (!(await isAuthorizedEmail(user?.email))) {
     await supabase.auth.signOut();
-    return NextResponse.redirect(new URL("/president/login?error=denied", url.origin));
+    return NextResponse.redirect(
+      new URL("/president/login?error=denied", `${serverEnv.siteUrl}/`),
+    );
   }
 
-  return NextResponse.redirect(new URL(next, url.origin));
+  // Render terminates TLS in front of the Node process. Depending on proxy
+  // headers, request.url can therefore have an internal localhost origin.
+  // Redirecting against the configured public site URL keeps the magic-link
+  // tab on the same public HTTPS host after the session cookie is written.
+  return NextResponse.redirect(new URL(next, `${serverEnv.siteUrl}/`));
 }
