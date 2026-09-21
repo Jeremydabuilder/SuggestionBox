@@ -12,6 +12,9 @@
 --   - chat_messages              : the turns inside a thread (immutable)
 --   - chat_pending_confirmations : one-time, expiring proposed mutations
 --   - chat_memories              : durable facts a president has approved
+--   - service-role-only functions: insert_chat_assistant_message,
+--     create_chat_pending_confirmation, invalidate_chat_pending_
+--     confirmation, apply_chat_memory_confirmation — see sections 3b and 5
 --
 -- ============================================================================
 -- THE FORGERY PROBLEM THIS REVISION FIXES
@@ -318,6 +321,126 @@ create trigger chat_pending_confirmations_authorship
   for each row execute function public.enforce_pending_confirmation_authorship();
 
 -- ---------------------------------------------------------------------------
+-- 3b. Trusted writer functions (service-role only)
+-- ---------------------------------------------------------------------------
+-- Why these exist: a plain service-role REST insert (supabase-js
+-- `.from(...).insert(...)` using the service key) has no per-request
+-- Postgres session to attach a GUC to — each call is stateless from
+-- PostgREST's point of view, and the service-role JWT carries no
+-- meaningful 'email' claim. That means the authorship triggers above
+-- would see an empty auth.jwt() and record created_by = '' for an
+-- assistant message or a pending confirmation, silently breaking "record
+-- which verified president initiated the request."
+--
+-- The fix already used for confirming a memory action generalizes cleanly:
+-- wrap the write in a small function that takes the caller's
+-- ALREADY-VERIFIED president email as an explicit argument, sets it into
+-- request.jwt.claims for the duration of that one call, and only then
+-- performs the insert — so the existing authorship triggers work exactly
+-- as they do for an ordinary authenticated insert. EXECUTE is restricted
+-- to service_role only, same as apply_chat_memory_confirmation().
+--
+-- Application code must still call getPresidentSession() (or equivalent)
+-- itself before ever invoking these — that check does not happen here and
+-- cannot happen here; p_acting_email is trusted input from trusted server
+-- code, never from a browser.
+create or replace function public.insert_chat_assistant_message(
+  p_conversation_id uuid,
+  p_content text,
+  p_structured jsonb,
+  p_acting_email text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  perform set_config('request.jwt.claims', jsonb_build_object('email', lower(p_acting_email))::text, true);
+
+  insert into public.chat_messages (conversation_id, role, content, structured)
+  values (p_conversation_id, 'assistant', p_content, p_structured)
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.insert_chat_assistant_message(uuid, text, jsonb, text) from public;
+revoke all on function public.insert_chat_assistant_message(uuid, text, jsonb, text) from anon, authenticated;
+grant execute on function public.insert_chat_assistant_message(uuid, text, jsonb, text) to service_role;
+
+-- p_confirmation_id is caller-supplied (the app pre-generates a uuid)
+-- rather than server-generated, because the assistant message this
+-- confirmation belongs to is written FIRST and is immutable — its
+-- `structured` JSON needs to reference the confirmation's id (so the UI
+-- knows which confirmation a card's Confirm button targets) before the
+-- confirmation row itself can exist, since the confirmation's own
+-- message_id foreign key requires the message to already exist. Passing
+-- the id in lets both rows agree on it without ever patching the message
+-- afterward.
+create or replace function public.create_chat_pending_confirmation(
+  p_confirmation_id uuid,
+  p_message_id uuid,
+  p_action_type text,
+  p_payload jsonb,
+  p_ttl_seconds integer,
+  p_acting_email text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  perform set_config('request.jwt.claims', jsonb_build_object('email', lower(p_acting_email))::text, true);
+
+  insert into public.chat_pending_confirmations (id, message_id, action_type, payload, expires_at)
+  values (p_confirmation_id, p_message_id, p_action_type, p_payload, now() + make_interval(secs => p_ttl_seconds))
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.create_chat_pending_confirmation(uuid, uuid, text, jsonb, integer, text) from public;
+revoke all on function public.create_chat_pending_confirmation(uuid, uuid, text, jsonb, integer, text) from anon, authenticated;
+grant execute on function public.create_chat_pending_confirmation(uuid, uuid, text, jsonb, integer, text) to service_role;
+
+-- Cancel: a president decided not to proceed with a proposal. No
+-- authorship column to set (chat_pending_confirmations has no
+-- "invalidated_by"), so this needs no acting-email argument — it only
+-- ever moves a genuinely still-pending row to 'invalidated', the same
+-- guard the confirm path itself uses.
+create or replace function public.invalidate_chat_pending_confirmation(
+  p_confirmation_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_rows int;
+begin
+  update public.chat_pending_confirmations
+  set status = 'invalidated'
+  where id = p_confirmation_id and status = 'pending';
+
+  get diagnostics v_rows = row_count;
+  return v_rows > 0;
+end;
+$$;
+
+revoke all on function public.invalidate_chat_pending_confirmation(uuid) from public;
+revoke all on function public.invalidate_chat_pending_confirmation(uuid) from anon, authenticated;
+grant execute on function public.invalidate_chat_pending_confirmation(uuid) to service_role;
+
+-- ---------------------------------------------------------------------------
 -- 4. Durable memory
 -- ---------------------------------------------------------------------------
 -- REVISED: read-only for `authenticated`. Every create, edit, and delete —
@@ -450,6 +573,138 @@ create policy "presidents can read memories"
 drop policy if exists "presidents can insert memories" on public.chat_memories;
 drop policy if exists "presidents can update memories" on public.chat_memories;
 drop policy if exists "presidents can delete memories" on public.chat_memories;
+
+-- ---------------------------------------------------------------------------
+-- 5. Atomic, confirmed memory mutation (service-role only)
+-- ---------------------------------------------------------------------------
+-- Why this function exists: a two-step app-level "claim the confirmation,
+-- then separately write chat_memories" is not safe. Manual testing of
+-- exactly that two-step flow (claim succeeds because the confirmation is
+-- genuinely pending/unexpired, then the memory UPDATE/DELETE affects zero
+-- rows because updated_at is stale) leaves the confirmation marked
+-- 'confirmed' while nothing was actually written — a false-positive
+-- "confirmed" status. Two network round trips from Node can never be made
+-- atomic with each other; a single Postgres function call, executing
+-- entirely inside one transaction, can.
+--
+-- This function claims the confirmation row (`for update`, so two
+-- simultaneous confirm attempts serialize rather than race), validates its
+-- type/expiry/status, performs the exact proposed mutation, and marks the
+-- confirmation 'confirmed' ONLY after that mutation is proven to have
+-- affected a row. Any failure path (not found, wrong type, already used,
+-- expired, malformed payload, stale updated_at) returns a machine-readable
+-- jsonb result and leaves — or moves — status to something other than
+-- 'confirmed'; it never mutates chat_memories on a failure path. An
+-- unexpected error (e.g. a check-constraint violation the caller's own
+-- validation should have already prevented) aborts the whole transaction,
+-- so even the FOR UPDATE lock and any earlier work in this same call rolls
+-- back — the confirmation is left exactly as it was, never falsely marked.
+--
+-- p_acting_email is the ALREADY-VERIFIED president's email, established by
+-- the caller's own getPresidentSession() check — this function does not,
+-- and cannot, verify a session itself; that is the caller's job, every
+-- time, before this is ever invoked. It is set into request.jwt.claims for
+-- the duration of this call so the existing chat_memories authorship
+-- trigger records the true acting president, not an empty string.
+--
+-- EXECUTE is restricted to service_role only — neither anon nor ordinary
+-- authenticated may call this function, directly or otherwise.
+create or replace function public.apply_chat_memory_confirmation(
+  p_confirmation_id uuid,
+  p_acting_email text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_conf   public.chat_pending_confirmations%rowtype;
+  v_memory_id uuid;
+  v_rows   int;
+begin
+  perform set_config('request.jwt.claims', jsonb_build_object('email', lower(p_acting_email))::text, true);
+
+  select * into v_conf
+  from public.chat_pending_confirmations
+  where id = p_confirmation_id
+  for update;
+
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+
+  if v_conf.action_type not in ('save_memory', 'update_memory', 'delete_memory') then
+    return jsonb_build_object('ok', false, 'error', 'wrong_action_type');
+  end if;
+
+  if v_conf.status <> 'pending' then
+    return jsonb_build_object('ok', false, 'error', 'not_pending', 'status', v_conf.status);
+  end if;
+
+  if v_conf.expires_at <= now() then
+    update public.chat_pending_confirmations set status = 'expired' where id = p_confirmation_id;
+    return jsonb_build_object('ok', false, 'error', 'expired');
+  end if;
+
+  if v_conf.action_type = 'save_memory' then
+    if coalesce(v_conf.payload ->> 'memoryText', '') = '' then
+      update public.chat_pending_confirmations set status = 'invalidated' where id = p_confirmation_id;
+      return jsonb_build_object('ok', false, 'error', 'invalid_payload');
+    end if;
+
+    insert into public.chat_memories (memory_text, category)
+    values (v_conf.payload ->> 'memoryText', nullif(v_conf.payload ->> 'category', ''))
+    returning id into v_memory_id;
+
+  elsif v_conf.action_type = 'update_memory' then
+    if v_conf.payload ->> 'memoryId' is null or v_conf.payload ->> 'expectedUpdatedAt' is null then
+      update public.chat_pending_confirmations set status = 'invalidated' where id = p_confirmation_id;
+      return jsonb_build_object('ok', false, 'error', 'invalid_payload');
+    end if;
+
+    update public.chat_memories
+    set memory_text = coalesce(v_conf.payload ->> 'memoryText', memory_text),
+        category = case when v_conf.payload ? 'category' then nullif(v_conf.payload ->> 'category', '') else category end
+    where id = (v_conf.payload ->> 'memoryId')::uuid
+      and updated_at = (v_conf.payload ->> 'expectedUpdatedAt')::timestamptz
+    returning id into v_memory_id;
+
+    get diagnostics v_rows = row_count;
+    if v_rows = 0 then
+      update public.chat_pending_confirmations set status = 'invalidated' where id = p_confirmation_id;
+      return jsonb_build_object('ok', false, 'error', 'stale_or_missing');
+    end if;
+
+  elsif v_conf.action_type = 'delete_memory' then
+    if v_conf.payload ->> 'memoryId' is null or v_conf.payload ->> 'expectedUpdatedAt' is null then
+      update public.chat_pending_confirmations set status = 'invalidated' where id = p_confirmation_id;
+      return jsonb_build_object('ok', false, 'error', 'invalid_payload');
+    end if;
+
+    delete from public.chat_memories
+    where id = (v_conf.payload ->> 'memoryId')::uuid
+      and updated_at = (v_conf.payload ->> 'expectedUpdatedAt')::timestamptz
+    returning id into v_memory_id;
+
+    get diagnostics v_rows = row_count;
+    if v_rows = 0 then
+      update public.chat_pending_confirmations set status = 'invalidated' where id = p_confirmation_id;
+      return jsonb_build_object('ok', false, 'error', 'stale_or_missing');
+    end if;
+  end if;
+
+  update public.chat_pending_confirmations
+  set status = 'confirmed', confirmed_by = lower(p_acting_email), confirmed_at = now()
+  where id = p_confirmation_id;
+
+  return jsonb_build_object('ok', true, 'memory_id', v_memory_id, 'action_type', v_conf.action_type);
+end;
+$$;
+
+revoke all on function public.apply_chat_memory_confirmation(uuid, text) from public;
+revoke all on function public.apply_chat_memory_confirmation(uuid, text) from anon, authenticated;
+grant execute on function public.apply_chat_memory_confirmation(uuid, text) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Table privileges
