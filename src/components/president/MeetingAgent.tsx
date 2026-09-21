@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { prepareWeeklyMeeting } from "@/app/president/actions";
+import { saveMeetingBrief } from "@/app/president/workspace-actions";
 import type { MeetingBrief, MeetingScope } from "@/lib/meeting-agent";
 
 const SCOPE_OPTIONS: Array<{ value: MeetingScope; label: string }> = [
@@ -11,12 +12,27 @@ const SCOPE_OPTIONS: Array<{ value: MeetingScope; label: string }> = [
   { value: "all", label: "All history" },
 ];
 
-export default function MeetingAgent({ configured }: { configured: boolean }) {
+export default function MeetingAgent({
+  configured,
+  onSaved,
+  onViewHistory,
+}: {
+  configured: boolean;
+  /** Called once a brief has been saved, so a parent can refresh Meeting History. */
+  onSaved?: () => void;
+  /** Called when the president wants to jump to Meeting History after saving. */
+  onViewHistory?: () => void;
+}) {
   const [scope, setScope] = useState<MeetingScope>("new");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [brief, setBrief] = useState<MeetingBrief | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const [saveAsDraft, setSaveAsDraft] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedState, setSavedState] = useState<"draft" | "saved" | null>(null);
 
   const sourceTitles = useMemo(
     () => new Map(brief?.sources.map((source) => [source.ref, source.title]) ?? []),
@@ -26,6 +42,8 @@ export default function MeetingAgent({ configured }: { configured: boolean }) {
   async function generate() {
     setLoading(true);
     setError(null);
+    setSaveError(null);
+    setSavedState(null);
     const result = await prepareWeeklyMeeting(scope);
     setLoading(false);
     if (!result.ok) {
@@ -33,6 +51,38 @@ export default function MeetingAgent({ configured }: { configured: boolean }) {
       return;
     }
     setBrief(result.data);
+  }
+
+  /**
+   * The only place a generated brief becomes a database row. This runs
+   * exclusively when a president clicks Save — generating a brief above
+   * never calls this on its own.
+   */
+  async function saveBrief() {
+    if (!brief) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await saveMeetingBrief({
+      content: {
+        headline: brief.headline,
+        executiveSummary: brief.executiveSummary,
+        agenda: brief.agenda,
+        quickWins: brief.quickWins,
+        decisionsNeeded: brief.decisionsNeeded,
+        followUps: brief.followUps,
+        watchouts: brief.watchouts,
+      },
+      scope,
+      sources: brief.sources.map((source) => ({ ref: source.ref, id: source.id })),
+      isDraft: saveAsDraft,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setSaveError(result.error);
+      return;
+    }
+    setSavedState(saveAsDraft ? "draft" : "saved");
+    onSaved?.();
   }
 
   async function copyBrief() {
@@ -146,6 +196,48 @@ export default function MeetingAgent({ configured }: { configured: boolean }) {
                   {copied ? "Copied" : "Copy agenda"}
                 </button>
               </div>
+
+              {/* ---- save: nothing above this point is ever persisted --- */}
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-rule bg-paper px-3.5 py-3">
+                {savedState ? (
+                  <>
+                    <p className="text-[13px] font-semibold text-emerald-900">
+                      {savedState === "draft" ? "Saved as a draft." : "Saved to Meeting History."}
+                    </p>
+                    {onViewHistory && (
+                      <button type="button" onClick={onViewHistory} className="btn-quiet ml-auto">
+                        View in Meeting History
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-2 text-[13px] font-medium text-navy">
+                      <input
+                        type="checkbox"
+                        checked={saveAsDraft}
+                        disabled={saving}
+                        onChange={(e) => setSaveAsDraft(e.target.checked)}
+                        className="h-4 w-4 accent-[#e24e1b]"
+                      />
+                      Save as draft (not finalized yet)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={saveBrief}
+                      disabled={saving}
+                      className="btn-primary ml-auto py-2 text-[13px]"
+                    >
+                      {saving ? "Saving…" : "Save this meeting"}
+                    </button>
+                  </>
+                )}
+              </div>
+              {saveError && (
+                <p role="alert" className="mt-2 text-[13px] font-medium text-rose-800">
+                  {saveError}
+                </p>
+              )}
 
               <div className="mt-5 grid gap-4 xl:grid-cols-[1.35fr_0.85fr]">
                 <div>

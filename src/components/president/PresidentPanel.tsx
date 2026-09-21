@@ -19,10 +19,11 @@ import {
 } from "@/lib/types";
 import { matchCountFor, relatedGroupSize } from "@/lib/duplicates";
 import { rescanDuplicates } from "@/app/president/actions";
-import MeetingAgent from "./MeetingAgent";
+import AIWorkspace from "./AIWorkspace";
 
 type SortOrder = "newest" | "oldest";
 type ReadFilter = "all" | "unread" | "read";
+type PanelView = "inbox" | "workspace";
 
 const POLL_INTERVAL_MS = 45_000;
 
@@ -53,6 +54,7 @@ export default function PresidentPanel({
   const [arrivedCount, setArrivedCount] = useState(0);
   const [detailSignal, setDetailSignal] = useState(0);
   const [live, setLive] = useState(false);
+  const [view, setView] = useState<PanelView>("inbox");
 
   const knownIds = useRef<Set<string>>(new Set(suggestions.map((s) => s.id)));
 
@@ -316,6 +318,34 @@ export default function PresidentPanel({
         </div>
       </header>
 
+      {/* ---- Inbox / AI Workspace navigation ---------------------------- */}
+      <nav aria-label="Dashboard section" className="mt-5 flex gap-1.5 rounded-[12px] border border-rule bg-paper-deep/60 p-1.5">
+        <button
+          type="button"
+          onClick={() => setView("inbox")}
+          aria-current={view === "inbox" ? "page" : undefined}
+          className={`flex-1 rounded-[9px] px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:px-6 ${
+            view === "inbox" ? "bg-white text-navy shadow-sm" : "text-navy-soft hover:text-navy"
+          }`}
+        >
+          Inbox
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("workspace")}
+          aria-current={view === "workspace" ? "page" : undefined}
+          className={`flex-1 rounded-[9px] px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:px-6 ${
+            view === "workspace" ? "bg-white text-navy shadow-sm" : "text-navy-soft hover:text-navy"
+          }`}
+        >
+          AI Workspace
+        </button>
+      </nav>
+
+      {view === "workspace" && <AIWorkspace configured={meetingAgentConfigured} />}
+
+      {view === "inbox" && (
+      <>
       {/* ---- new arrivals banner -------------------------------------- */}
       <AnimatePresence>
         {arrivedCount > 0 && (
@@ -385,8 +415,6 @@ export default function PresidentPanel({
           ))}
         </div>
       </section>
-
-      <MeetingAgent configured={meetingAgentConfigured} />
 
       {/* ---- toolbar --------------------------------------------------- */}
       <div className="paper mt-5 p-3.5 sm:p-4">
@@ -569,6 +597,8 @@ export default function PresidentPanel({
           )}
         </AnimatePresence>
       </div>
+      </>
+      )}
     </div>
   );
 }
