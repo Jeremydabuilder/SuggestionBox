@@ -275,7 +275,7 @@ export default function PresidentPanel({
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
       {/* ---- header --------------------------------------------------- */}
-      <header className="relative overflow-hidden rounded-[20px] bg-navy px-5 py-6 text-white shadow-[0_18px_50px_-32px_rgba(16,25,53,0.9)] sm:px-7 sm:py-7">
+      <header className="dashboard-hero relative overflow-hidden rounded-[20px] px-5 py-6 text-white shadow-[0_18px_50px_-32px_rgba(16,25,53,0.9)] sm:px-7 sm:py-7">
         <span aria-hidden className="absolute -top-20 -right-14 h-52 w-52 rounded-full border-[36px] border-white/[0.035]" />
         <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -589,7 +589,7 @@ function Stat({
       onClick={onClick}
       aria-pressed={active}
       className={`paper group min-h-[92px] px-4 py-3.5 text-left transition-all hover:-translate-y-0.5 hover:border-navy/25 hover:shadow-md ${
-        active ? "border-navy bg-navy text-white" : accent ? "border-accent/45" : ""
+        active ? "dashboard-stat-active border-navy text-white" : accent ? "border-accent/45" : ""
       }`}
     >
       <p className={`text-[12px] font-semibold tracking-wide uppercase ${active ? "text-white/75" : "text-navy-soft"}`}>
