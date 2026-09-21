@@ -6,7 +6,9 @@ A private, working suggestion box for a middle-school student government.
 - **The two co-presidents** read and manage every suggestion at `/president`, behind
   real server-side authentication.
 
-There is no public ideas feed, no voting, no comments, no student accounts, no
+There is no public ideas feed, no voting, or public comments. Students may optionally use a
+passwordless email account to track their own non-anonymous submissions; anonymous ideas are
+never linked to an account. There is no
 teacher accounts, and no demo mode. **No email is sent when a suggestion arrives** —
 the dashboard is the inbox. An optional daily digest is available and is off by default.
 
@@ -200,11 +202,12 @@ Two ways. Both end in the same place; pick whichever you prefer.
 ### Option A — the SQL Editor (no tools, no secrets)
 
 1. Supabase dashboard → **SQL Editor → New query**.
-2. Run the three files in `supabase/migrations/` **in order**, each as its own
+2. Run the four files in `supabase/migrations/` **in order**, each as its own
    query:
    1. `20260101000000_init.sql`
    2. `20260102000000_duplicates.sql`
    3. `20260103000000_duplicate_reversals.sql`
+   4. `20260921000000_student_tracking.sql`
 
 ### Option B — the Supabase CLI
 
