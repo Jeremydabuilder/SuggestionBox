@@ -167,7 +167,7 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     groqSynthesisEligible: false,
     maxRecords: 200,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "List, propose, or confirm durable memory changes.",
   },
   general_workspace_question: {
@@ -206,12 +206,15 @@ const HELP_MESSAGE = [
 export type ToolExecutionResult =
   | { status: "ok"; kind: "help"; message: string }
   | { status: "ok"; kind: "clarification"; question: string }
+  | { status: "ok"; kind: "memory_manager"; action: "list" | "search"; query?: string }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
 /**
  * Looks the route up in the fixed registry and returns an honest typed
  * result. Nothing here performs a mutation, a database read, or a Groq
- * call — Stage 3 never executes anything consequential. An intent whose
+ * call — memory_manager only ever tells the caller to open the Memory
+ * Manager UI, which itself goes through the Stage 2 propose/confirm
+ * actions for every actual write. An intent whose
  * registry status isn't "implemented" always comes back as `not_available`,
  * never a fabricated record or a simulated success.
  */
@@ -224,6 +227,11 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
 
   if (decision.intent === "help" && entry.status === "implemented") {
     return { status: "ok", kind: "help", message: HELP_MESSAGE };
+  }
+
+  if (decision.intent === "memory_manager" && entry.status === "implemented") {
+    const args = decision.args as { action?: "list" | "search"; query?: string };
+    return { status: "ok", kind: "memory_manager", action: args.action ?? "list", query: args.query };
   }
 
   return {

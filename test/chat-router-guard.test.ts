@@ -37,9 +37,9 @@ describe("registry safety boundary", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("only 'help' and 'clarification_needed' are marked implemented in Stage 3", () => {
+  test("as of Stage 4, only 'help', 'clarification_needed', and 'memory_manager' are marked implemented", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
-    assert.deepEqual(new Set(implemented), new Set(["help", "clarification_needed"]));
+    assert.deepEqual(new Set(implemented), new Set(["help", "clarification_needed", "memory_manager"]));
   });
 
   test("the registry file has no generic SQL, HTTP, shell, or dynamic-import capability", () => {
