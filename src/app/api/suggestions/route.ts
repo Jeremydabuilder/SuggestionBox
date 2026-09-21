@@ -3,7 +3,7 @@ import { suggestionSchema, fieldErrors, LIMITS } from "@/lib/validation";
 import { sanitizeLine, sanitizeText } from "@/lib/sanitize";
 import { checkRateLimit, clientIpFrom, hashIp, recordSubmission } from "@/lib/rate-limit";
 import { verifyTurnstile } from "@/lib/turnstile";
-import { createSupabaseServiceClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
 import { detectDuplicatesFor } from "@/lib/duplicates/service";
 
 export const runtime = "nodejs";
@@ -84,20 +84,26 @@ export async function POST(request: Request) {
   }
 
   // ---- 5. Save -----------------------------------------------------------
+  const sessionClient = await createSupabaseServerClient();
+  const { data: { user } } = await sessionClient.auth.getUser();
   const service = createSupabaseServiceClient();
+  const row: Record<string, unknown> = {
+    title: value.title,
+    description: value.description,
+    category: value.category,
+    improvement_reason: value.improvementReason,
+    student_name: value.studentName ? value.studentName : null,
+    student_email: value.studentEmail ? value.studentEmail : null,
+    is_anonymous: value.isAnonymous,
+    status: "new",
+    is_read: false,
+  };
+  // Omitting the field entirely for ordinary submissions keeps deployment
+  // backward-compatible until the optional tracking migration is applied.
+  if (user && !value.isAnonymous) row.submitter_user_id = user.id;
   const { data, error } = await service
     .from("suggestions")
-    .insert({
-      title: value.title,
-      description: value.description,
-      category: value.category,
-      improvement_reason: value.improvementReason,
-      student_name: value.studentName ? value.studentName : null,
-      student_email: value.studentEmail ? value.studentEmail : null,
-      is_anonymous: value.isAnonymous,
-      status: "new",
-      is_read: false,
-    })
+    .insert(row)
     .select("id, created_at")
     .single();
 
