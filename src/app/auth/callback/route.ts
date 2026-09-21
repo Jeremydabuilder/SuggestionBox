@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 
 /** Only ever redirect to a path on this site. */
 function safeNext(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/president";
-  return value;
+  if (value?.startsWith("/my-ideas")) return "/my-ideas";
+  if (value?.startsWith("/president")) return "/president";
+  return "/president";
 }
 
 export async function GET(request: Request) {
@@ -32,17 +33,21 @@ export async function GET(request: Request) {
   }
 
   if (!signedIn) {
+    const loginPath = next === "/my-ideas"
+      ? "/my-ideas/login?error=link"
+      : "/president/login?error=link";
     return NextResponse.redirect(
-      new URL("/president/login?error=link", `${serverEnv.siteUrl}/`),
+      new URL(loginPath, `${serverEnv.siteUrl}/`),
     );
   }
 
-  // Signing in is not the same as being allowed in.
+  // President access needs the roster check. Student tracking accepts any
+  // verified email, but RLS limits that user to their own linked suggestions.
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!(await isAuthorizedEmail(user?.email))) {
+  if (next.startsWith("/president") && !(await isAuthorizedEmail(user?.email))) {
     await supabase.auth.signOut();
     return NextResponse.redirect(
       new URL("/president/login?error=denied", `${serverEnv.siteUrl}/`),
