@@ -25,7 +25,7 @@
 -- after insertion proves nothing about who — or what code path — wrote the
 -- row in the first place.
 --
--- The fix has two parts:
+-- The fix has three parts:
 --
 -- 1. RLS now makes forgery of an assistant/confirmation message
 --    IMPOSSIBLE for an authenticated client, not just discouraged:
@@ -65,20 +65,32 @@
 --    no insert, update, or delete grant at all — so a client can see a
 --    confirmation's status but can never transition it.
 --
--- Durable memory gets the analogous treatment for requirement 7 ("a direct
--- REST request must not silently create a durable AI memory outside the
--- confirmed flow"): chat_memories keeps direct, is_president()-gated CRUD,
--- because the product intentionally lets a president type a memory
--- directly into the Memory Manager — that is already a deliberate,
--- confirmed action, not something the AI did unilaterally. What changes is
--- that an AI-*proposed* memory ("Remember this?") is never written to
--- chat_memories directly by the AI or by inserting a row that merely
--- claims to be approved: it goes through the same chat_pending_
--- confirmations flow (action_type = 'save_memory') as every other
--- proposal, and only a president's own Confirm click — which runs as that
--- president, under normal is_president() RLS — ever performs the actual
--- INSERT into chat_memories. Nothing in this schema lets a row be
--- inserted while claiming AI provenance it doesn't have.
+-- 3. Durable memory (chat_memories) got a second look and a second fix.
+--    The first pass of this migration gave `authenticated` direct
+--    is_president()-gated INSERT/UPDATE/DELETE on chat_memories, on the
+--    reasoning that the Memory Manager's own typed Add/Edit/Delete was
+--    already "a president's deliberate action" and didn't need the
+--    confirmation dance. That was wrong: requirement 7 asks that durable
+--    memory be written ONLY through the confirmed server flow, full stop
+--    — not "except when a president is typing directly into a form." A
+--    direct REST request using a president's own valid session could
+--    still create or silently alter a memory with no confirmation card,
+--    no expiry, and no one-time-use guarantee, which is exactly the gap
+--    the rest of this file closes for chat_messages.
+--
+--    Fixed the same way: `authenticated` now gets SELECT only on
+--    chat_memories — no insert/update/delete policy AND no such grant, at
+--    all. Every create, edit, or delete — AI-proposed or typed directly
+--    into the Memory Manager — becomes a chat_pending_confirmations row
+--    (action_type 'save_memory' / 'update_memory' / 'delete_memory') and
+--    is written only by the service-role confirm handler, after it
+--    independently re-verifies the president's session and atomically
+--    claims that still-pending, unexpired confirmation. An edit or delete
+--    proposal must carry the memory's `updated_at` as last seen; the
+--    handler's UPDATE/DELETE includes `and updated_at = <that value>`, so
+--    a memory changed since the card was shown fails the confirmation
+--    instead of silently overwriting newer state. See the chat_memories
+--    table comment below for the mechanics.
 --
 -- ============================================================================
 -- What this migration does NOT add, and why
@@ -110,9 +122,11 @@
 --     chat_memories — none of those tables have any foreign key pointing
 --     at chat_conversations, chat_messages, or chat_pending_confirmations,
 --     so there is nothing for the cascade to reach.
---   - A durable memory is deleted only by its own explicit delete action
---     on chat_memories — never as a side effect of deleting a conversation
---     or a pending confirmation.
+--   - A durable memory is deleted only by its own explicit, confirmed
+--     delete action on chat_memories — never as a side effect of deleting
+--     a conversation or a pending confirmation, and never by a direct
+--     authenticated DELETE (chat_memories has no delete grant at all for
+--     `authenticated` — see section 4 below).
 --
 -- Run this in the Supabase SQL editor, or with `supabase db push`. It is
 -- idempotent enough to re-run safely.
@@ -262,6 +276,7 @@ create table if not exists public.chat_pending_confirmations (
     'delete_action',
     'save_meeting_cleanup',
     'save_memory',
+    'update_memory',
     'delete_memory'
   )),
   payload      jsonb not null,
@@ -305,11 +320,25 @@ create trigger chat_pending_confirmations_authorship
 -- ---------------------------------------------------------------------------
 -- 4. Durable memory
 -- ---------------------------------------------------------------------------
--- Direct, is_president()-gated CRUD — this is what the Memory Manager uses
--- for a president's own deliberate add/edit/delete. An AI-*proposed*
--- memory never lands here directly; it goes through chat_pending_
--- confirmations (action_type = 'save_memory') like any other proposal, and
--- only a president's own Confirm click inserts the row (see header note).
+-- REVISED: read-only for `authenticated`. Every create, edit, and delete —
+-- whether proposed by the AI or typed directly into the Memory Manager —
+-- goes through the same chat_pending_confirmations flow as any other
+-- mutation (action_type in 'save_memory' / 'update_memory' /
+-- 'delete_memory'), and only the service-role confirm handler ever writes
+-- to this table, after it has independently verified the president's
+-- session, atomically claimed a still-pending/unexpired confirmation row,
+-- and validated the payload. There is no longer a "the Memory Manager
+-- writes directly, an AI proposal writes through confirmation" split: a
+-- direct authenticated INSERT/UPDATE/DELETE is refused unconditionally, so
+-- the Manager's Add/Edit/Delete controls must show a confirmation card too
+-- (even for a president's own typed text) before anything is written.
+--
+-- Optimistic concurrency for edits/deletes: this table's own updated_at
+-- doubles as the version field. A propose-edit/propose-delete payload must
+-- carry the memory's `updated_at` as it was when the president saw it; the
+-- confirm handler's UPDATE/DELETE includes `and updated_at = <that value>`
+-- so a memory changed or removed since the proposal was shown makes the
+-- confirmation fail closed rather than silently overwrite newer state.
 create table if not exists public.chat_memories (
   id           uuid primary key default gen_random_uuid(),
   memory_text  text not null check (char_length(memory_text) between 1 and 500),
@@ -413,24 +442,14 @@ create policy "presidents can read memories"
   to authenticated
   using (public.is_president());
 
+-- REVISED: no insert/update/delete policy for `authenticated` at all,
+-- matching the absence of any such grant below. Every write to this table
+-- goes through the service-role confirm handler — see the table comment
+-- above. Old policy names dropped explicitly so a re-run of the prior
+-- version of this migration cannot leave them behind.
 drop policy if exists "presidents can insert memories" on public.chat_memories;
-create policy "presidents can insert memories"
-  on public.chat_memories for insert
-  to authenticated
-  with check (public.is_president());
-
 drop policy if exists "presidents can update memories" on public.chat_memories;
-create policy "presidents can update memories"
-  on public.chat_memories for update
-  to authenticated
-  using (public.is_president())
-  with check (public.is_president());
-
 drop policy if exists "presidents can delete memories" on public.chat_memories;
-create policy "presidents can delete memories"
-  on public.chat_memories for delete
-  to authenticated
-  using (public.is_president());
 
 -- ---------------------------------------------------------------------------
 -- Table privileges
@@ -447,7 +466,9 @@ grant select, insert, delete         on public.chat_messages      to authenticat
 -- chat_pending_confirmations: select only — no insert/update/delete grant
 -- at all for authenticated. Every write goes through service-role.
 grant select                         on public.chat_pending_confirmations to authenticated;
-grant select, insert, update, delete on public.chat_memories      to authenticated;
+-- chat_memories: REVISED to select only. Create/edit/delete all go through
+-- the confirm handler's service-role write, never a direct client write.
+grant select                         on public.chat_memories      to authenticated;
 
 -- No grants to anon on any table in this migration.
 
