@@ -151,6 +151,18 @@ export default function PresidentPanel({
     };
   }, [suggestions, duplicateCounts]);
 
+  const activeSuggestions = stats.total - stats.archived;
+  const workflow = useMemo(
+    () => [
+      { status: "new" as const, label: "New", count: suggestions.filter((s) => s.status === "new").length, color: "bg-accent" },
+      { status: "reviewing" as const, label: "Reviewing", count: suggestions.filter((s) => s.status === "reviewing").length, color: "bg-sky-500" },
+      { status: "discussing" as const, label: "Discussing", count: stats.discussing, color: "bg-violet-500" },
+      { status: "in_progress" as const, label: "In progress", count: suggestions.filter((s) => s.status === "in_progress").length, color: "bg-amber-500" },
+      { status: "completed" as const, label: "Completed", count: stats.completed, color: "bg-emerald-500" },
+    ],
+    [suggestions, stats.discussing, stats.completed],
+  );
+
   /* ---- filtering, search and sorting -------------------------------- */
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -263,26 +275,28 @@ export default function PresidentPanel({
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
       {/* ---- header --------------------------------------------------- */}
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header className="relative overflow-hidden rounded-[20px] bg-navy px-5 py-6 text-white shadow-[0_18px_50px_-32px_rgba(16,25,53,0.9)] sm:px-7 sm:py-7">
+        <span aria-hidden className="absolute -top-20 -right-14 h-52 w-52 rounded-full border-[36px] border-white/[0.035]" />
+        <div className="relative flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <span aria-hidden className="inline-block h-5 w-5 rounded-[5px] border-[2.5px] border-navy bg-accent" />
-            <p className="eyebrow">Private dashboard</p>
+            <span aria-hidden className="inline-block h-5 w-5 rounded-[5px] border-2 border-white/70 bg-accent" />
+            <p className="text-[11.5px] font-bold tracking-[0.13em] text-orange-200 uppercase">Private dashboard</p>
           </div>
-          <h1 className="mt-2 text-[28px] leading-tight font-bold text-navy sm:text-[34px]">
+          <h1 className="mt-2 text-[30px] leading-tight font-bold text-white sm:text-[38px]">
             Suggestion inbox
           </h1>
-          <p className="mt-1 text-sm text-navy-soft">
+          <p className="mt-1.5 text-sm text-white/65">
             {stats.unread > 0
               ? `${stats.unread} suggestion${stats.unread === 1 ? "" : "s"} waiting to be read`
               : "You’re caught up — no unread suggestions"}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="hidden text-sm text-navy-soft sm:inline">{currentEmail}</span>
+          <span className="hidden text-sm text-white/65 sm:inline">{currentEmail}</span>
           <span
             title={live ? "Live updates on" : "Reconnecting — refreshing every 45 seconds"}
-            className="inline-flex items-center gap-1.5 rounded-full border border-rule bg-white px-2.5 py-1 text-[12px] font-medium text-navy-soft"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[12px] font-medium text-white/80"
           >
             <span
               aria-hidden
@@ -295,6 +309,7 @@ export default function PresidentPanel({
               Sign out
             </button>
           </form>
+        </div>
         </div>
       </header>
 
@@ -344,6 +359,29 @@ export default function PresidentPanel({
         <Stat label="Possible duplicates" value={stats.withDuplicates} active={duplicatesOnly} onClick={showDuplicates} />
         <Stat label="Completed" value={stats.completed} active={status === "completed"} onClick={() => showStatus("completed")} />
       </div>
+
+      <section className="paper mt-4 px-4 py-4 sm:px-5" aria-labelledby="workflow-heading">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="eyebrow">Progress</p>
+            <h2 id="workflow-heading" className="mt-1 text-lg font-bold text-navy">Where ideas stand</h2>
+          </div>
+          <p className="text-[12.5px] text-navy-soft">{activeSuggestions} active · {stats.archived} archived</p>
+        </div>
+        <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-paper-deep" aria-hidden>
+          {workflow.map((item) => item.count > 0 && (
+            <span key={item.status} className={item.color} style={{ flexGrow: item.count }} />
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {workflow.map((item) => (
+            <button key={item.status} type="button" onClick={() => showStatus(item.status)} className="group flex items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-paper-deep">
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.color}`} aria-hidden />
+              <span className="min-w-0 text-[12px] text-navy-soft"><strong className="text-navy tabular-nums">{item.count}</strong> {item.label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* ---- toolbar --------------------------------------------------- */}
       <div className="paper mt-5 p-3.5 sm:p-4">
