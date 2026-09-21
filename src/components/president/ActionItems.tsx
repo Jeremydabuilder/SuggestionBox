@@ -52,6 +52,7 @@ export default function ActionItems({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     const [itemResult, meetingResult] = await Promise.all([listActionItems(), listMeetingBriefs(false)]);
@@ -67,6 +68,16 @@ export default function ActionItems({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * No realtime subscription here — see the same note in DecisionLog.tsx.
+   * A quiet, explicit Refresh button is the deliberate choice for this list.
+   */
+  async function refresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
 
   useEffect(() => {
     if (prefill) setFormOpen(true);
@@ -180,8 +191,17 @@ export default function ActionItems({
         </select>
         <button
           type="button"
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          title="This list doesn't update live — refresh to see actions your co-president just added or changed."
+          className="btn-quiet ml-auto"
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
+          type="button"
           onClick={() => setFormOpen((open) => !open)}
-          className="btn-primary ml-auto py-2 text-[13px]"
+          className="btn-primary py-2 text-[13px]"
         >
           {formOpen ? "Cancel" : "Add action"}
         </button>

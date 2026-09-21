@@ -46,6 +46,7 @@ export default function DecisionLog({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     const [decisionResult, meetingResult] = await Promise.all([listDecisions(), listMeetingBriefs(false)]);
@@ -61,6 +62,19 @@ export default function DecisionLog({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Decisions don't have a realtime subscription — unlike the inbox, which
+   * already has one wired up in PresidentPanel, adding a second live channel
+   * here for a low-traffic, easy-to-refresh list wasn't worth the added
+   * complexity. Instead: a quiet, explicit Refresh button picks up whatever
+   * the other co-president has saved.
+   */
+  async function refresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
 
   useEffect(() => {
     if (prefill) setFormOpen(true);
@@ -148,8 +162,17 @@ export default function DecisionLog({
         </select>
         <button
           type="button"
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          title="This list doesn't update live — refresh to see decisions your co-president just added or changed."
+          className="btn-quiet ml-auto"
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
+          type="button"
           onClick={() => setFormOpen((open) => !open)}
-          className="btn-primary ml-auto py-2 text-[13px]"
+          className="btn-primary py-2 text-[13px]"
         >
           {formOpen ? "Cancel" : "Add decision"}
         </button>
