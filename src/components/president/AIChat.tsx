@@ -16,6 +16,7 @@ import type { AssistantStructured, ChatConversation, ChatMessage } from "@/lib/c
 import type { Suggestion } from "@/lib/types";
 import { AGENT_DEFAULT_NAME, AGENT_DESCRIPTION, resolveAgentName } from "@/lib/agent-identity";
 import type { AgentHomeBriefing } from "@/lib/agent-home-briefing";
+import { TREND_LABEL_TEXT } from "@/lib/trend-radar";
 import MemoryManagerPanel from "./MemoryManagerPanel";
 import AgentSettingsPanel from "./AgentSettingsPanel";
 import MeetingAgent from "./MeetingAgent";
@@ -823,15 +824,23 @@ function InboxSearchCard({ result }: { result: Extract<AssistantStructured, { ty
 }
 
 function TrendRadarCard({ report }: { report: Extract<AssistantStructured, { type: "trend_radar_report" }> }) {
-  const rising = report.trends.filter((t) => t.isRising);
-  if (rising.length === 0) return null;
+  const notable = report.trends.filter((t) => t.label !== "insufficient_evidence");
+  if (notable.length === 0) return null;
   return (
     <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
       <ul className="space-y-1.5 text-[12.5px] text-navy">
-        {rising.map((t) => (
+        {notable.map((t) => (
           <li key={t.category} className="flex items-center justify-between gap-2">
-            <span className="truncate capitalize">{t.category.replace(/_/g, " ")}</span>
-            <span className="shrink-0 text-[11px] text-navy-soft">{t.priorCount} → {t.recentCount}</span>
+            <span className="truncate capitalize">
+              {t.category.replace(/_/g, " ")}
+              <span className="ml-1.5 rounded-full border border-rule bg-paper px-1.5 py-0.5 text-[10px] font-semibold text-navy-soft">
+                {TREND_LABEL_TEXT[t.label]}
+              </span>
+            </span>
+            <span className="shrink-0 text-[11px] text-navy-soft">
+              {t.priorCount} → {t.recentCount}
+              {t.changeRatio !== null ? ` (${t.changeRatio}×)` : ""}
+            </span>
           </li>
         ))}
       </ul>
@@ -840,17 +849,40 @@ function TrendRadarCard({ report }: { report: Extract<AssistantStructured, { typ
 }
 
 function PromiseTrackerCard({ report }: { report: Extract<AssistantStructured, { type: "promise_tracker_report" }> }) {
-  if (report.gaps.length === 0) return null;
+  const totalGaps = report.gaps.length + report.suggestionGaps.length + report.staleActionGaps.length;
+  if (totalGaps === 0) return null;
   return (
-    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
-      <ul className="space-y-1.5 text-[12.5px] text-navy">
-        {report.gaps.map((gap) => (
-          <li key={gap.id} className="flex items-center justify-between gap-2">
-            <span className="truncate">{gap.decisionText}</span>
-            <span className="shrink-0 text-[11px] text-navy-soft">{gap.daysSinceDecision}d, no action</span>
-          </li>
-        ))}
-      </ul>
+    <div className="mt-2.5 space-y-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      {report.gaps.length > 0 && (
+        <ReportSection title={`Decisions with no follow-up action (${report.gaps.length})`}>
+          {report.gaps.map((gap) => (
+            <li key={gap.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{gap.decisionText}</span>
+              <span className="shrink-0 text-[11px] text-navy-soft">{gap.daysSinceDecision}d</span>
+            </li>
+          ))}
+        </ReportSection>
+      )}
+      {report.suggestionGaps.length > 0 && (
+        <ReportSection title={`Approved suggestions with no linked action (${report.suggestionGaps.length})`}>
+          {report.suggestionGaps.map((gap) => (
+            <li key={gap.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{gap.title}</span>
+              <span className="shrink-0 text-[11px] text-navy-soft">{gap.daysSinceCreated}d</span>
+            </li>
+          ))}
+        </ReportSection>
+      )}
+      {report.staleActionGaps.length > 0 && (
+        <ReportSection title={`Open actions untouched since creation (${report.staleActionGaps.length})`}>
+          {report.staleActionGaps.map((gap) => (
+            <li key={gap.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{gap.actionText}</span>
+              <span className="shrink-0 text-[11px] text-navy-soft">{gap.daysSinceCreated}d</span>
+            </li>
+          ))}
+        </ReportSection>
+      )}
     </div>
   );
 }

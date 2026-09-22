@@ -112,6 +112,10 @@ export const trendRadarStructuredSchema = z.object({
         category: z.string(),
         recentCount: z.number().int().min(0),
         priorCount: z.number().int().min(0),
+        olderCount: z.number().int().min(0),
+        changeRatio: z.number().nullable(),
+        label: z.enum(["emerging", "sustained", "cooling", "insufficient_evidence"]),
+        confidence: z.enum(["low", "moderate", "high"]),
         isRising: z.boolean(),
       }),
     )
@@ -133,6 +137,8 @@ export const promiseTrackerStructuredSchema = z.object({
     )
     .max(20),
   meetingScopedDecisionCount: z.number().int().min(0),
+  suggestionGaps: z.array(z.object({ id: z.string().uuid(), title: z.string().max(300), daysSinceCreated: z.number().int().min(0) })).max(20),
+  staleActionGaps: z.array(z.object({ id: z.string().uuid(), actionText: z.string().max(2000), daysSinceCreated: z.number().int().min(0) })).max(20),
 });
 export type PromiseTrackerStructured = z.infer<typeof promiseTrackerStructuredSchema>;
 

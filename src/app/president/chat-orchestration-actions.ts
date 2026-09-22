@@ -199,12 +199,19 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
   } else if (execution.status === "ok" && execution.kind === "promise_tracker") {
     const trackerResult = await getPromiseTracker();
     if (trackerResult.ok) {
-      const { gaps } = trackerResult.data;
+      const { gaps, suggestionGaps, staleActionGaps } = trackerResult.data;
+      const totalGaps = gaps.length + suggestionGaps.length + staleActionGaps.length;
       assistantContent =
-        gaps.length === 0
-          ? "No decisions are missing a recorded follow-up action."
-          : `${gaps.length} decision${gaps.length === 1 ? "" : "s"} still ${gaps.length === 1 ? "has" : "have"} no recorded follow-up action.`;
-      structured = { type: "promise_tracker_report", gaps, meetingScopedDecisionCount: trackerResult.data.meetingScopedDecisionCount };
+        totalGaps === 0
+          ? "No follow-through gaps found — decisions, approved suggestions, and open actions all look current."
+          : [
+              gaps.length > 0 ? `${gaps.length} decision${gaps.length === 1 ? "" : "s"} with no recorded follow-up action.` : null,
+              suggestionGaps.length > 0 ? `${suggestionGaps.length} approved suggestion${suggestionGaps.length === 1 ? "" : "s"} with no linked action.` : null,
+              staleActionGaps.length > 0 ? `${staleActionGaps.length} open action${staleActionGaps.length === 1 ? "" : "s"} untouched since it was created.` : null,
+            ]
+              .filter(Boolean)
+              .join(" ");
+      structured = { type: "promise_tracker_report", ...trackerResult.data };
     } else {
       assistantContent = trackerResult.error;
     }
