@@ -74,10 +74,10 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
   since_last_meeting: {
     intent: "since_last_meeting",
     classification: "read_only",
-    groqSynthesisEligible: true,
-    maxRecords: 200,
+    groqSynthesisEligible: false,
+    maxRecords: 500,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "A deterministic report of what changed since a saved meeting.",
   },
   meeting_prep: {
@@ -211,6 +211,7 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "meeting_history" }
   | { status: "ok"; kind: "list_decisions" }
   | { status: "ok"; kind: "list_actions" }
+  | { status: "ok"; kind: "since_last_meeting"; meetingId: string | null }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
 /**
@@ -225,9 +226,14 @@ export type ToolExecutionResult =
  * create/edit/delete there already requires the president to review a
  * form and click an explicit save/delete button, which is the same
  * "nothing happens without an explicit act" guarantee the Stage 1/2
- * confirmation-card boundary gives chat-authored memory changes. An
- * intent whose registry status isn't "implemented" always comes back as
- * `not_available`, never a fabricated record or a simulated success.
+ * confirmation-card boundary gives chat-authored memory changes.
+ * since_last_meeting is different — it is read-only and safe to answer
+ * inline, so it just tells the caller which meeting to use as the cutoff;
+ * the actual (deterministic, zero-Groq) report is built by
+ * since-last-meeting-actions.ts and rendered as a structured chat card,
+ * never a separate panel. An intent whose registry status isn't
+ * "implemented" always comes back as `not_available`, never a fabricated
+ * record or a simulated success.
  */
 export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "clarification_needed") {
@@ -259,6 +265,11 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
 
   if (decision.intent === "list_actions" && entry.status === "implemented") {
     return { status: "ok", kind: "list_actions" };
+  }
+
+  if (decision.intent === "since_last_meeting" && entry.status === "implemented") {
+    const args = decision.args as { meetingId?: string };
+    return { status: "ok", kind: "since_last_meeting", meetingId: args.meetingId ?? null };
   }
 
   return {

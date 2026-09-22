@@ -43,9 +43,45 @@ export const statusStructuredSchema = z.object({
 });
 export type StatusStructured = z.infer<typeof statusStructuredSchema>;
 
+/**
+ * The inline "Since Last Meeting" report card (Stage 6). Every field is a
+ * bounded count or a capped list of already-public workspace facts
+ * (suggestion titles/status, decision/action text) — nothing here is
+ * student PII beyond what the dashboard itself already shows, and nothing
+ * here is a citation to content the president can't otherwise see.
+ */
+export const sinceLastMeetingReportStructuredSchema = z.object({
+  type: z.literal("since_last_meeting_report"),
+  referenceMeetingHeadline: z.string().nullable(),
+  newSuggestionCount: z.number().int().min(0),
+  newSuggestions: z
+    .array(z.object({ id: z.string().uuid(), title: z.string().max(300), status: z.string() }))
+    .max(20),
+  statusChangeCount: z.number().int().min(0),
+  statusChanges: z
+    .array(
+      z.object({
+        suggestionId: z.string().uuid(),
+        title: z.string().max(300),
+        fromStatus: z.string().nullable(),
+        toStatus: z.string(),
+      }),
+    )
+    .max(20),
+  newDecisionCount: z.number().int().min(0),
+  newDecisions: z.array(z.object({ id: z.string().uuid(), decisionText: z.string().max(2000) })).max(20),
+  newActionCount: z.number().int().min(0),
+  newActions: z.array(z.object({ id: z.string().uuid(), actionText: z.string().max(2000) })).max(20),
+  overdueActionCount: z.number().int().min(0),
+  dueSoonActionCount: z.number().int().min(0),
+  needsAttention: z.array(z.string().max(200)).max(10),
+});
+export type SinceLastMeetingReportStructured = z.infer<typeof sinceLastMeetingReportStructuredSchema>;
+
 export const assistantStructuredSchema = z.discriminatedUnion("type", [
   memoryProposalStructuredSchema,
   statusStructuredSchema,
+  sinceLastMeetingReportStructuredSchema,
 ]);
 export type AssistantStructured = z.infer<typeof assistantStructuredSchema>;
 

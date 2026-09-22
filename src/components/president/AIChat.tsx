@@ -10,7 +10,7 @@ import {
   listMessages,
 } from "@/app/president/chat-actions";
 import { sendChatMessage } from "@/app/president/chat-orchestration-actions";
-import type { ChatConversation, ChatMessage } from "@/lib/chat-store";
+import type { ChatConversation, ChatMessage, SinceLastMeetingReportStructured } from "@/lib/chat-store";
 import type { Suggestion } from "@/lib/types";
 import MemoryManagerPanel from "./MemoryManagerPanel";
 import MeetingAgent from "./MeetingAgent";
@@ -429,11 +429,14 @@ export default function AIChat({
                 {messages.map((message) => (
                   <li key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`group max-w-[85%] rounded-[14px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
-                        message.role === "user" ? "bg-navy text-white" : "border border-rule bg-paper text-navy"
-                      }`}
+                      className={`group rounded-[14px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
+                        message.structured?.type === "since_last_meeting_report" ? "max-w-[95%]" : "max-w-[85%]"
+                      } ${message.role === "user" ? "bg-navy text-white" : "border border-rule bg-paper text-navy"}`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
+                      {message.structured?.type === "since_last_meeting_report" && (
+                        <SinceLastMeetingCard report={message.structured} />
+                      )}
                       {message.role === "assistant" && (
                         <button
                           type="button"
@@ -536,6 +539,94 @@ export default function AIChat({
         </ToolPanelModal>
       )}
     </section>
+  );
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  new: "New",
+  reviewing: "Reviewing",
+  discussing: "Discussing",
+  approved: "Approved",
+  in_progress: "In Progress",
+  completed: "Completed",
+  declined: "Declined",
+  archived: "Archived",
+};
+
+/**
+ * The Stage 6 "Since Last Meeting" report, rendered as a structured card
+ * right inside the chat bubble — no modal, no separate panel. Purely
+ * presentational: every count and list already arrived validated from the
+ * server (chat-store.ts's sinceLastMeetingReportStructuredSchema), so this
+ * component does no fetching and no re-validation of its own.
+ */
+function SinceLastMeetingCard({ report }: { report: SinceLastMeetingReportStructured }) {
+  return (
+    <div className="mt-2.5 space-y-3 rounded-[10px] border border-rule bg-white/70 p-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          ["New suggestions", report.newSuggestionCount],
+          ["Status changes", report.statusChangeCount],
+          ["New decisions", report.newDecisionCount],
+          ["New actions", report.newActionCount],
+        ].map(([label, count]) => (
+          <div key={label as string} className="rounded-lg border border-rule bg-paper px-2.5 py-2 text-center">
+            <p className="text-[17px] font-bold text-navy">{count}</p>
+            <p className="text-[10.5px] font-semibold uppercase tracking-wide text-navy-soft">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      {report.newSuggestions.length > 0 && (
+        <ReportSection title={`New suggestions (${report.newSuggestionCount})`}>
+          {report.newSuggestions.map((s) => (
+            <li key={s.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{s.title}</span>
+              <span className="shrink-0 text-[11px] text-navy-soft">{STATUS_LABELS[s.status] ?? s.status}</span>
+            </li>
+          ))}
+        </ReportSection>
+      )}
+
+      {report.statusChanges.length > 0 && (
+        <ReportSection title={`Status changes (${report.statusChangeCount})`}>
+          {report.statusChanges.map((c, i) => (
+            <li key={`${c.suggestionId}-${i}`} className="flex items-center justify-between gap-2">
+              <span className="truncate">{c.title}</span>
+              <span className="shrink-0 text-[11px] text-navy-soft">
+                {c.fromStatus ? `${STATUS_LABELS[c.fromStatus] ?? c.fromStatus} → ` : ""}
+                {STATUS_LABELS[c.toStatus] ?? c.toStatus}
+              </span>
+            </li>
+          ))}
+        </ReportSection>
+      )}
+
+      {report.newDecisions.length > 0 && (
+        <ReportSection title={`New decisions (${report.newDecisionCount})`}>
+          {report.newDecisions.map((d) => (
+            <li key={d.id} className="truncate">{d.decisionText}</li>
+          ))}
+        </ReportSection>
+      )}
+
+      {report.newActions.length > 0 && (
+        <ReportSection title={`New action items (${report.newActionCount})`}>
+          {report.newActions.map((a) => (
+            <li key={a.id} className="truncate">{a.actionText}</li>
+          ))}
+        </ReportSection>
+      )}
+    </div>
+  );
+}
+
+function ReportSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-navy-soft">{title}</p>
+      <ul className="space-y-1 text-[12.5px] text-navy">{children}</ul>
+    </div>
   );
 }
 

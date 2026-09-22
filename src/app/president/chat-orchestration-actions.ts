@@ -4,8 +4,9 @@ import { getPresidentSession } from "@/lib/auth";
 import { sendUserMessage, listMessages } from "./chat-actions";
 import { routeChatMessage } from "./chat-router";
 import { insertAssistantMessage } from "./chat-assistant-internal";
+import { getSinceLastMeetingReport } from "./since-last-meeting-actions";
 import type { ActionResult } from "./actions";
-import type { ChatMessage } from "@/lib/chat-store";
+import type { AssistantStructured, ChatMessage } from "@/lib/chat-store";
 
 function fail(error: string): { ok: false; error: string } {
   return { ok: false, error };
@@ -49,6 +50,7 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
   const { decision, execution } = await routeChatMessage(session, userResult.data.content, recentContext);
 
   let assistantContent: string;
+  let structured: AssistantStructured | null = null;
   if (execution.status === "ok" && execution.kind === "help") {
     assistantContent = execution.message;
   } else if (execution.status === "ok" && execution.kind === "clarification") {
@@ -63,13 +65,28 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     assistantContent = "Opening the Decision Log.";
   } else if (execution.status === "ok" && execution.kind === "list_actions") {
     assistantContent = "Opening Action Items.";
+  } else if (execution.status === "ok" && execution.kind === "since_last_meeting") {
+    // Read-only and safe to answer inline — no panel, no confirmation, just
+    // a structured card built from a deterministic report (see
+    // since-last-meeting-actions.ts: no model call happens anywhere in it).
+    const reportResult = await getSinceLastMeetingReport(execution.meetingId ?? undefined);
+    if (reportResult.ok) {
+      assistantContent = reportResult.data.summary;
+      structured = {
+        type: "since_last_meeting_report",
+        referenceMeetingHeadline: reportResult.data.meetingHeadline,
+        ...reportResult.data.report,
+      };
+    } else {
+      assistantContent = reportResult.error;
+    }
   } else {
     assistantContent = execution.status === "not_available" ? execution.reason : "I couldn't process that just now.";
   }
 
   let assistantMessageId: string;
   try {
-    assistantMessageId = await insertAssistantMessage(session, conversationId, assistantContent, null);
+    assistantMessageId = await insertAssistantMessage(session, conversationId, assistantContent, structured);
   } catch {
     return fail("Your message was sent, but I couldn't reply just now. Try again in a moment.");
   }
@@ -79,7 +96,7 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     conversationId,
     role: "assistant",
     content: assistantContent,
-    structured: null,
+    structured,
     createdBy: session.email,
     createdAt: new Date().toISOString(),
   };

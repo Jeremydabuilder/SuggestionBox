@@ -37,11 +37,20 @@ describe("registry safety boundary", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("as of Stage 5, 'help', 'clarification_needed', 'memory_manager', 'meeting_prep', 'meeting_history', 'list_decisions', and 'list_actions' are marked implemented", () => {
+  test("as of Stage 6, 'help', 'clarification_needed', 'memory_manager', 'meeting_prep', 'meeting_history', 'list_decisions', 'list_actions', and 'since_last_meeting' are marked implemented", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
     assert.deepEqual(
       new Set(implemented),
-      new Set(["help", "clarification_needed", "memory_manager", "meeting_prep", "meeting_history", "list_decisions", "list_actions"]),
+      new Set([
+        "help",
+        "clarification_needed",
+        "memory_manager",
+        "meeting_prep",
+        "meeting_history",
+        "list_decisions",
+        "list_actions",
+        "since_last_meeting",
+      ]),
     );
   });
 
@@ -84,6 +93,19 @@ describe("executeRoute — honest results, never a fake record", () => {
     const result = executeRoute(decision);
     assert.equal(result.status, "ok");
     if (result.status === "ok" && result.kind === "clarification") assert.equal(result.question, "Which meeting?");
+  });
+
+  test("since_last_meeting returns an honest routing signal, never a fabricated report — the real report is built by since-last-meeting-actions.ts, not executeRoute", () => {
+    const withoutMeeting: RouteDecision = { intent: "since_last_meeting", args: parseIntentArgs("since_last_meeting", {}), confidence: "high", needsClarification: false, source: "deterministic" };
+    const r1 = executeRoute(withoutMeeting);
+    assert.equal(r1.status, "ok");
+    if (r1.status === "ok" && r1.kind === "since_last_meeting") assert.equal(r1.meetingId, null);
+
+    const meetingId = "11111111-1111-4111-8111-111111111111";
+    const withMeeting: RouteDecision = { intent: "since_last_meeting", args: parseIntentArgs("since_last_meeting", { meetingId }), confidence: "high", needsClarification: false, source: "deterministic" };
+    const r2 = executeRoute(withMeeting);
+    assert.equal(r2.status, "ok");
+    if (r2.status === "ok" && r2.kind === "since_last_meeting") assert.equal(r2.meetingId, meetingId);
   });
 
   test("meeting_prep, meeting_history, list_decisions, and list_actions each return the panel-open kind matching their intent name, not a fabricated record", () => {

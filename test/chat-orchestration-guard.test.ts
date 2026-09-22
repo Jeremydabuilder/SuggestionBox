@@ -60,6 +60,29 @@ describe("chat-orchestration-actions.ts — the one browser-callable send entry 
   });
 
   test("no Groq call anywhere in this file — routing/Groq calls stay inside chat-router.ts", () => {
-    assert.doesNotMatch(source, /groq/i);
+    assert.doesNotMatch(stripComments(source), /groq/i);
+  });
+});
+
+describe("since_last_meeting — the structured report card is built from a real server read, not assembled from routing args", () => {
+  test("delegates to getSinceLastMeetingReport rather than constructing the report itself", () => {
+    assert.match(source, /getSinceLastMeetingReport\(execution\.meetingId/);
+  });
+
+  test("the structured card is only ever set from the report result, never a client- or classifier-supplied value", () => {
+    const body = functionBody("sendChatMessage");
+    // Every assignment to `structured` must originate from `reportResult.data.report`
+    // (the trusted server read) — never from `decision.args` or raw message text.
+    const assignments = [...body.matchAll(/structured\s*=\s*([^;]+);/g)].map((m) => m[1]!.trim());
+    for (const assignment of assignments) {
+      assert.match(assignment, /reportResult\.data\.report/, `unexpected structured assignment: ${assignment}`);
+    }
+    assert.ok(assignments.length > 0);
+  });
+
+  test("a failed report read falls back to the report's own error text, not a silent success", () => {
+    const body = functionBody("sendChatMessage");
+    assert.match(body, /reportResult\.ok/);
+    assert.match(body, /reportResult\.error/);
   });
 });
