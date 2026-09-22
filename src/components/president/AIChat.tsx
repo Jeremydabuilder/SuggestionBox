@@ -556,14 +556,35 @@ function StructuredCard({ structured }: { structured: AssistantStructured }) {
     case "inbox_search_results":
       return <InboxSearchCard result={structured} />;
     case "inbox_answer":
-      return <InboxAnswerCard answer={structured} />;
+      return <CitationListCard label="Sources" citations={structured.citations} />;
     case "trend_radar_report":
       return <TrendRadarCard report={structured} />;
     case "promise_tracker_report":
       return <PromiseTrackerCard report={structured} />;
+    case "proposal_draft":
+      return <CitationListCard label="Sources" citations={structured.citations} />;
+    case "communication_draft":
+      return <CitationListCard label="Sources" citations={structured.citations} />;
     default:
       return null;
   }
+}
+
+function CitationListCard({ label, citations }: { label: string; citations: Array<{ ref: string; title: string }> }) {
+  if (citations.length === 0) return null;
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-navy-soft">{label}</p>
+      <ul className="space-y-1 text-[12.5px] text-navy">
+        {citations.map((c) => (
+          <li key={c.ref} className="truncate">
+            <span className="mr-1.5 text-[10.5px] font-bold text-navy-soft">{c.ref}</span>
+            {c.title}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function InboxSearchCard({ result }: { result: Extract<AssistantStructured, { type: "inbox_search_results" }> }) {
@@ -578,23 +599,6 @@ function InboxSearchCard({ result }: { result: Extract<AssistantStructured, { ty
               {hit.title}
             </span>
             <span className="shrink-0 text-[11px] text-navy-soft">{STATUS_LABELS[hit.status] ?? hit.status}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function InboxAnswerCard({ answer }: { answer: Extract<AssistantStructured, { type: "inbox_answer" }> }) {
-  if (answer.citations.length === 0) return null;
-  return (
-    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
-      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-navy-soft">Sources</p>
-      <ul className="space-y-1 text-[12.5px] text-navy">
-        {answer.citations.map((c) => (
-          <li key={c.ref} className="truncate">
-            <span className="mr-1.5 text-[10.5px] font-bold text-navy-soft">{c.ref}</span>
-            {c.title}
           </li>
         ))}
       </ul>

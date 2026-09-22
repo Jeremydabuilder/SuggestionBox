@@ -120,9 +120,9 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     intent: "proposal_builder",
     classification: "draft",
     groqSynthesisEligible: true,
-    maxRecords: 50,
+    maxRecords: 10,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Draft a proposal from selected or related suggestions.",
   },
   trend_radar: {
@@ -147,9 +147,9 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     intent: "draft_communication",
     classification: "draft",
     groqSynthesisEligible: true,
-    maxRecords: 20,
+    maxRecords: 8,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Draft an announcement, update, or recap. Never sends anything.",
   },
   meeting_cleanup: {
@@ -216,6 +216,8 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "trend_radar" }
   | { status: "ok"; kind: "promise_tracker" }
   | { status: "ok"; kind: "general_workspace_question"; query: string }
+  | { status: "ok"; kind: "proposal_builder"; topic: string }
+  | { status: "ok"; kind: "draft_communication"; commKind?: string; topic: string }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
 /**
@@ -292,6 +294,16 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "general_workspace_question" && entry.status === "implemented") {
     const args = decision.args as { query: string };
     return { status: "ok", kind: "general_workspace_question", query: args.query };
+  }
+
+  if (decision.intent === "proposal_builder" && entry.status === "implemented") {
+    const args = decision.args as { topic?: string };
+    return { status: "ok", kind: "proposal_builder", topic: args.topic ?? "" };
+  }
+
+  if (decision.intent === "draft_communication" && entry.status === "implemented") {
+    const args = decision.args as { kind?: string; topic?: string };
+    return { status: "ok", kind: "draft_communication", commKind: args.kind, topic: args.topic ?? "" };
   }
 
   return {

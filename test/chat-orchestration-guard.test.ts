@@ -108,3 +108,17 @@ describe("Stage 7 — search_inbox, trend_radar, and promise_tracker are determi
     assert.doesNotMatch(stripComments(source), /groq/i);
   });
 });
+
+describe("Stage 8 — proposal_builder and draft_communication delegate to their own server-only, citation-checked modules", () => {
+  test("proposal_builder calls buildProposalDraft exactly once, and its structured card comes straight from the result", () => {
+    const occurrences = (source.match(/buildProposalDraft\(/g) ?? []).length;
+    assert.equal(occurrences, 1);
+    assert.match(source, /structured = proposal\.structured;/);
+  });
+
+  test("draft_communication calls buildCommunicationDraft exactly once, and its structured card comes straight from the result", () => {
+    const occurrences = (source.match(/buildCommunicationDraft\(/g) ?? []).length;
+    assert.equal(occurrences, 1);
+    assert.match(source, /structured = draft\.structured;/);
+  });
+});

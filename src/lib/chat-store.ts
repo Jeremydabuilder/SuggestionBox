@@ -136,6 +136,36 @@ export const promiseTrackerStructuredSchema = z.object({
 });
 export type PromiseTrackerStructured = z.infer<typeof promiseTrackerStructuredSchema>;
 
+/**
+ * Stage 8: Proposal Builder. Deliberately has no cost, budget, or policy
+ * field anywhere in this shape — the strongest version of "never invent a
+ * dollar figure or a policy citation" is a schema with nowhere to put
+ * one. `citations` is always the post-validation allowlisted subset (see
+ * chat-proposal-builder.ts), same guarantee as inbox_answer.
+ */
+export const proposalDraftStructuredSchema = z.object({
+  type: z.literal("proposal_draft"),
+  answer: z.string().max(3000),
+  citations: z.array(z.object({ ref: suggestionRefSchema, title: z.string().max(300) })).max(10),
+});
+export type ProposalDraftStructured = z.infer<typeof proposalDraftStructuredSchema>;
+
+/** Stage 8: draft communications. Nothing in this codebase can send this — it is chat text only, same as every other reply. */
+export const communicationDraftStructuredSchema = z.object({
+  type: z.literal("communication_draft"),
+  kind: z.enum([
+    "assembly_announcement",
+    "student_update",
+    "status_explanation",
+    "teacher_admin_request",
+    "follow_up_question",
+    "meeting_recap",
+  ]),
+  answer: z.string().max(3000),
+  citations: z.array(z.object({ ref: suggestionRefSchema, title: z.string().max(300) })).max(8),
+});
+export type CommunicationDraftStructured = z.infer<typeof communicationDraftStructuredSchema>;
+
 export const assistantStructuredSchema = z.discriminatedUnion("type", [
   memoryProposalStructuredSchema,
   statusStructuredSchema,
@@ -144,6 +174,8 @@ export const assistantStructuredSchema = z.discriminatedUnion("type", [
   inboxAnswerStructuredSchema,
   trendRadarStructuredSchema,
   promiseTrackerStructuredSchema,
+  proposalDraftStructuredSchema,
+  communicationDraftStructuredSchema,
 ]);
 export type AssistantStructured = z.infer<typeof assistantStructuredSchema>;
 

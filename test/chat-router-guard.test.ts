@@ -37,7 +37,7 @@ describe("registry safety boundary", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("as of Stage 7, 12 of the 17 intents are marked implemented — suggestion_details, related_suggestions, proposal_builder, draft_communication, and meeting_cleanup remain planned/not_connected", () => {
+  test("as of Stage 8, 14 of the 17 intents are marked implemented — only suggestion_details, related_suggestions, and meeting_cleanup remain planned/not_connected", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
     assert.deepEqual(
       new Set(implemented),
@@ -54,6 +54,8 @@ describe("registry safety boundary", () => {
         "trend_radar",
         "promise_tracker",
         "general_workspace_question",
+        "proposal_builder",
+        "draft_communication",
       ]),
     );
   });
@@ -136,6 +138,21 @@ describe("executeRoute — honest results, never a fake record", () => {
     assert.equal(questionResult.status, "ok");
     if (questionResult.status === "ok" && questionResult.kind === "general_workspace_question") {
       assert.equal(questionResult.query, "what's popular?");
+    }
+  });
+
+  test("proposal_builder and draft_communication return honest routing signals, never fabricated drafts — the real drafting happens in their own server-only modules, not executeRoute", () => {
+    const proposal: RouteDecision = { intent: "proposal_builder", args: parseIntentArgs("proposal_builder", { topic: "recycling" }), confidence: "high", needsClarification: false, source: "deterministic" };
+    const proposalResult = executeRoute(proposal);
+    assert.equal(proposalResult.status, "ok");
+    if (proposalResult.status === "ok" && proposalResult.kind === "proposal_builder") assert.equal(proposalResult.topic, "recycling");
+
+    const comm: RouteDecision = { intent: "draft_communication", args: parseIntentArgs("draft_communication", { kind: "meeting_recap", topic: "lunch" }), confidence: "high", needsClarification: false, source: "deterministic" };
+    const commResult = executeRoute(comm);
+    assert.equal(commResult.status, "ok");
+    if (commResult.status === "ok" && commResult.kind === "draft_communication") {
+      assert.equal(commResult.commKind, "meeting_recap");
+      assert.equal(commResult.topic, "lunch");
     }
   });
 

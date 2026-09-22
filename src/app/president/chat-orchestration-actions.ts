@@ -9,6 +9,8 @@ import { searchInbox } from "./inbox-search-actions";
 import { getTrendRadar } from "./trend-radar-actions";
 import { getPromiseTracker } from "./promise-tracker-actions";
 import { answerWorkspaceQuestion } from "./chat-inbox-answer";
+import { buildProposalDraft } from "./chat-proposal-builder";
+import { buildCommunicationDraft } from "./chat-communication-draft";
 import type { ActionResult } from "./actions";
 import type { AssistantStructured, ChatMessage } from "@/lib/chat-store";
 
@@ -127,6 +129,17 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     const answer = await answerWorkspaceQuestion(session, execution.query);
     assistantContent = answer.content;
     structured = answer.structured;
+  } else if (execution.status === "ok" && execution.kind === "proposal_builder") {
+    // Also a Groq path (see chat-proposal-builder.ts for its own bounded
+    // request count and citation-allowlist re-validation) — nothing here
+    // saves the draft anywhere; it's chat text only, like every reply.
+    const proposal = await buildProposalDraft(session, execution.topic);
+    assistantContent = proposal.content;
+    structured = proposal.structured;
+  } else if (execution.status === "ok" && execution.kind === "draft_communication") {
+    const draft = await buildCommunicationDraft(session, execution.commKind, execution.topic);
+    assistantContent = draft.content;
+    structured = draft.structured;
   } else {
     assistantContent = execution.status === "not_available" ? execution.reason : "I couldn't process that just now.";
   }
