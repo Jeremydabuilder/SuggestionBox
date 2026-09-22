@@ -143,6 +143,32 @@ const RULES: Rule[] = [
       return decision("draft_communication", kind ? { kind } : {});
     },
   },
+  // Email drafts — deliberately checked before the generic draft_communication
+  // rules above, since "email" isn't one of that tool's kinds. A revision
+  // request ("make this warmer/shorter/more formal") is recognized without
+  // requiring the word "email" again, so a natural follow-up still routes
+  // correctly; chat-orchestration-actions.ts finds the most recent
+  // email_draft card in the conversation to revise.
+  {
+    match: /\bmake (this|it) (warmer|friendlier)\b/i,
+    build: () => decision("draft_email", { mode: "warmer" }),
+  },
+  {
+    match: /\bmake (this|it) (shorter|more concise|briefer)\b/i,
+    build: () => decision("draft_email", { mode: "shorter" }),
+  },
+  {
+    match: /\bmake (this|it) (more formal|formal)\b/i,
+    build: () => decision("draft_email", { mode: "formal" }),
+  },
+  {
+    match: /\b(draft|write|compose)\b.*\bemail\b(?:.*?\b(?:about|to|asking|regarding)\s+(.+))?/i,
+    build: (m) => decision("draft_email", m[1] ? { topic: m[1].trim().slice(0, 300), mode: "new" } : { mode: "new" }),
+  },
+  {
+    match: /\bturn (this|it) into an email\b/i,
+    build: () => decision("draft_email", { mode: "new" }),
+  },
   // Search inbox — requires a topic; without one this falls through to clarification below.
   {
     match: /\b(search|find)\b.*\b(suggestions?|the inbox|student ideas?)\b\s*(?:about|for|on)\s+(.+)/i,

@@ -33,11 +33,11 @@ const routerSource = read("src/app/president/chat-router.ts");
 const registrySource = read("src/app/president/chat-tool-registry.ts");
 
 describe("registry safety boundary", () => {
-  test("every one of the 18 intents has exactly one registry entry", () => {
+  test("every one of the 19 intents has exactly one registry entry", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("16 of the 18 intents are marked implemented — only suggestion_details and related_suggestions remain planned (no durable cross-turn S### ref resolution yet)", () => {
+  test("17 of the 19 intents are marked implemented — only suggestion_details and related_suggestions remain planned (no durable cross-turn S### ref resolution yet)", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
     assert.deepEqual(
       new Set(implemented),
@@ -57,6 +57,7 @@ describe("registry safety boundary", () => {
         "general_workspace_question",
         "proposal_builder",
         "draft_communication",
+        "draft_email",
         "meeting_cleanup",
       ]),
     );

@@ -173,6 +173,26 @@ export const communicationDraftStructuredSchema = z.object({
 export type CommunicationDraftStructured = z.infer<typeof communicationDraftStructuredSchema>;
 
 /**
+ * A structured, editable email draft. recipientEmail is deliberately NOT
+ * model-supplied — see lib/email-draft-prompt.ts's own doc comment — it
+ * only ever comes from what the president types into the card afterward,
+ * so this schema has no field for it at all; the card renders its own
+ * local "To" input. Nothing in this codebase can send this either — it
+ * is chat text (plus a client-side mailto: link the president opens
+ * themselves) only, never an auto-send.
+ */
+export const emailDraftStructuredSchema = z.object({
+  type: z.literal("email_draft"),
+  recipientName: z.string().max(120).nullable(),
+  subject: z.string().max(300),
+  greeting: z.string().max(200),
+  body: z.string().max(3000),
+  closing: z.string().max(300),
+  citations: z.array(z.object({ ref: suggestionRefSchema, title: z.string().max(300) })).max(8),
+});
+export type EmailDraftStructured = z.infer<typeof emailDraftStructuredSchema>;
+
+/**
  * Stage 10 UX audit fix: meeting_history, list_decisions, and list_actions
  * used to always open a full modal on a chat message — a read-only answer
  * that should appear inline, per the product requirement that the AI
@@ -254,6 +274,7 @@ export const assistantStructuredSchema = z.discriminatedUnion("type", [
   promiseTrackerStructuredSchema,
   proposalDraftStructuredSchema,
   communicationDraftStructuredSchema,
+  emailDraftStructuredSchema,
   meetingHistorySummaryStructuredSchema,
   decisionsSummaryStructuredSchema,
   actionsSummaryStructuredSchema,

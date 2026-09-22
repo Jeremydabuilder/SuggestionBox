@@ -26,6 +26,7 @@ import ActionItems, { type PrefillAction } from "./ActionItems";
 import RecorderCleanupPanel from "./RecorderCleanupPanel";
 import TrashPanel from "./TrashPanel";
 import HelpPanel from "./HelpPanel";
+import { CopyButton } from "./ui";
 
 type ToolPanel = "meeting_prep" | "meeting_history" | "decisions" | "actions" | "recorder" | "trash" | "help" | null;
 
@@ -670,6 +671,8 @@ function StructuredCard({ structured, onOpenPanel }: { structured: AssistantStru
       return <CitationListCard label="Sources" citations={structured.citations} />;
     case "communication_draft":
       return <CitationListCard label="Sources" citations={structured.citations} />;
+    case "email_draft":
+      return <EmailDraftCard draft={structured} />;
     case "meeting_history_summary":
       return <MeetingHistorySummaryCard summary={structured} onOpenPanel={onOpenPanel} />;
     case "decisions_summary":
@@ -811,6 +814,67 @@ function CitationListCard({ label, citations }: { label: string; citations: Arra
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * The recipient's email address is never part of the model's output (see
+ * email-draft-prompt.ts) — this "To" field is local component state only,
+ * typed by the president. mailto: is built fresh from current field
+ * values every render and is only ever followed by an explicit click on
+ * "Open in email app"; nothing here can send anything by itself.
+ */
+function EmailDraftCard({ draft }: { draft: Extract<AssistantStructured, { type: "email_draft" }> }) {
+  const [to, setTo] = useState("");
+
+  const fullEmail = `${to ? `To: ${to}\n` : ""}Subject: ${draft.subject}\n\n${draft.greeting}\n\n${draft.body}\n\n${draft.closing}`;
+  const mailtoHref = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(
+    `${draft.greeting}\n\n${draft.body}\n\n${draft.closing}`,
+  )}`;
+
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3.5">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent-wash px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-accent-ink">
+        Draft — review before sending
+      </span>
+
+      <div className="mt-2.5 space-y-2">
+        <label className="block text-[11px] font-semibold text-navy-soft">
+          To {!to && <span className="font-normal italic text-navy-soft/70">(recipient needed — enter it yourself)</span>}
+          <input
+            type="email"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder={draft.recipientName ? `${draft.recipientName}'s email address` : "recipient@example.com"}
+            className="field mt-1 w-full text-[13px]"
+          />
+        </label>
+
+        <label className="block text-[11px] font-semibold text-navy-soft">
+          Subject
+          <input type="text" defaultValue={draft.subject} readOnly className="field mt-1 w-full text-[13px]" />
+        </label>
+
+        <div className="rounded-[8px] border border-rule bg-paper/60 p-2.5 text-[13px] leading-relaxed text-navy whitespace-pre-wrap">
+          {draft.greeting}
+          {"\n\n"}
+          {draft.body}
+          {"\n\n"}
+          {draft.closing}
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <CopyButton value={draft.subject} label="Copy subject" className="btn-quiet py-1 text-[11.5px]" />
+        <CopyButton value={`${draft.greeting}\n\n${draft.body}\n\n${draft.closing}`} label="Copy body" className="btn-quiet py-1 text-[11.5px]" />
+        <CopyButton value={fullEmail} label="Copy complete email" className="btn-quiet py-1 text-[11.5px]" />
+        <a href={mailtoHref} className="btn-quiet py-1 text-[11.5px]">
+          Open in email app
+        </a>
+      </div>
+
+      <CitationListCard label="Sources" citations={draft.citations} />
     </div>
   );
 }

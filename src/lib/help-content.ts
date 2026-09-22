@@ -217,6 +217,18 @@ export const PRESIDENT_HELP_TOPICS: HelpTopic[] = [
     ],
   },
   {
+    id: "email-drafts",
+    audience: "president",
+    question: "How does drafting an email work?",
+    answer: [
+      "Ask the agent to draft an email — \"draft an email to a teacher about this suggestion,\" \"write a follow-up email after our meeting,\" or similar — and it returns a structured, fully editable draft: recipient name (if you named one), subject, greeting, body, and closing. You can then say \"make it warmer,\" \"make it shorter,\" or \"make it more formal\" to revise the most recent draft.",
+      "The agent never invents a recipient's email address, and never invents a name either unless you named one yourself — otherwise the To field just says \"recipient needed\" for you to fill in. Every field is editable before you do anything with it.",
+      "Copy the subject, the body, or the complete email, or click \"Open in email app\" — a mailto: link that pre-fills your own email client with the reviewed recipient, subject, and body. Nothing is ever sent from inside this app; there's no Gmail, Outlook, or other sending integration here at all.",
+      "You can set a preferred sign-off, a shared signature, and a concise/balanced/detailed or warm/formal default the same way you'd teach the agent anything else — by asking it to remember, which still requires your explicit confirmation before it saves anything.",
+    ],
+    keywords: ["email", "draft email", "mailto"],
+  },
+  {
     id: "recorder-cleanup",
     audience: "president",
     question: "How does meeting recording and cleanup work?",

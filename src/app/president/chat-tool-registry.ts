@@ -163,6 +163,16 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     status: "implemented",
     description: "Draft an announcement, update, or recap. Never sends anything.",
   },
+  draft_email: {
+    intent: "draft_email",
+    classification: "draft",
+    groqSynthesisEligible: true,
+    maxRecords: 6,
+    authLevel: "president",
+    status: "implemented",
+    description:
+      "Draft a complete, editable email (recipient, subject, body, closing) as a structured card. Never invents a recipient address, and never sends anything — you copy it or open it in your own email app.",
+  },
   meeting_cleanup: {
     intent: "meeting_cleanup",
     classification: "draft",
@@ -209,6 +219,7 @@ const HELP_MESSAGE = [
   "- List decisions and action items, and their status",
   "- Build a proposal from related suggestions",
   "- Draft an announcement or update (never sends it)",
+  "- Draft a complete, editable email — recipient, subject, and body — as a structured card (never invents a recipient address, never sends it)",
   "- Manage what I'm allowed to remember between conversations",
   "- Open Trash to review, restore, or permanently delete a suggestion (you always click the actual button yourself)",
   "",
@@ -231,6 +242,7 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "general_workspace_question"; query: string }
   | { status: "ok"; kind: "proposal_builder"; topic: string }
   | { status: "ok"; kind: "draft_communication"; commKind?: string; topic: string }
+  | { status: "ok"; kind: "draft_email"; topic: string; mode: "new" | "warmer" | "shorter" | "formal" }
   | { status: "ok"; kind: "meeting_cleanup" }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
@@ -334,6 +346,11 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "draft_communication" && entry.status === "implemented") {
     const args = decision.args as { kind?: string; topic?: string };
     return { status: "ok", kind: "draft_communication", commKind: args.kind, topic: args.topic ?? "" };
+  }
+
+  if (decision.intent === "draft_email" && entry.status === "implemented") {
+    const args = decision.args as { topic?: string; mode?: "new" | "warmer" | "shorter" | "formal" };
+    return { status: "ok", kind: "draft_email", topic: args.topic ?? "", mode: args.mode ?? "new" };
   }
 
   if (decision.intent === "meeting_cleanup" && entry.status === "implemented") {

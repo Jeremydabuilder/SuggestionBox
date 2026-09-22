@@ -23,6 +23,7 @@ export const CHAT_INTENTS = [
   "trend_radar",
   "promise_tracker",
   "draft_communication",
+  "draft_email",
   "meeting_cleanup",
   "memory_manager",
   "general_workspace_question",
@@ -142,6 +143,16 @@ export const intentArgSchemas = {
         ])
         .optional(),
       topic: z.string().trim().max(200).optional(),
+    })
+    .strict(),
+
+  // recipientEmail is deliberately not a field here — see
+  // email-draft-prompt.ts's own doc comment. A "To" address only ever
+  // comes from what the president types into the card afterward.
+  draft_email: z
+    .object({
+      topic: z.string().trim().max(300).optional(),
+      mode: z.enum(["new", "warmer", "shorter", "formal"]).optional(),
     })
     .strict(),
 

@@ -11,6 +11,8 @@ import { getPromiseTracker } from "./promise-tracker-actions";
 import { answerWorkspaceQuestion } from "./chat-inbox-answer";
 import { buildProposalDraft } from "./chat-proposal-builder";
 import { buildCommunicationDraft } from "./chat-communication-draft";
+import { buildEmailDraft } from "./chat-email-draft";
+import type { EmailDraftJson } from "@/lib/email-draft-prompt";
 import { listMeetingBriefs } from "./workspace-actions";
 import { listDecisions } from "./decisions-actions";
 import { listActionItems } from "./action-items-actions";
@@ -236,6 +238,30 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     structured = proposal.structured;
   } else if (execution.status === "ok" && execution.kind === "draft_communication") {
     const draft = await buildCommunicationDraft(session, execution.commKind, execution.topic);
+    assistantContent = draft.content;
+    structured = draft.structured;
+  } else if (execution.status === "ok" && execution.kind === "draft_email") {
+    // A revision mode ("warmer"/"shorter"/"formal") needs the most recent
+    // email_draft card in this conversation to revise — found here, from
+    // messages already loaded for context, never re-fetched or trusted
+    // from the client. "new" always starts fresh regardless.
+    let existingDraft: EmailDraftJson | null = null;
+    if (execution.mode !== "new") {
+      for (let i = priorMessages.length - 1; i >= 0; i -= 1) {
+        const candidate = priorMessages[i]!.structured;
+        if (candidate?.type === "email_draft") {
+          existingDraft = {
+            recipientName: candidate.recipientName,
+            subject: candidate.subject,
+            greeting: candidate.greeting,
+            body: candidate.body,
+            closing: candidate.closing,
+          };
+          break;
+        }
+      }
+    }
+    const draft = await buildEmailDraft(session, execution.topic, execution.mode, existingDraft);
     assistantContent = draft.content;
     structured = draft.structured;
   } else if (execution.status === "ok" && execution.kind === "meeting_cleanup") {
