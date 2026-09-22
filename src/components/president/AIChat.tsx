@@ -259,37 +259,59 @@ export default function AIChat({
 
   return (
     <section className="mt-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="eyebrow text-violet-800">AI Workspace</p>
-          <h2 className="mt-1 text-xl font-bold text-navy">AI Co-President</h2>
-        </div>
-        <div className="flex gap-2">
+      <div className="mb-4 overflow-hidden rounded-[16px] border border-violet-300/55 bg-[linear-gradient(135deg,rgba(91,68,181,0.11),rgba(226,78,27,0.07)_55%,rgba(255,255,255,0.75))] px-4 py-4 shadow-[0_12px_35px_-28px_rgba(55,39,120,0.75)] sm:px-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <div
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-violet-700 text-xl text-white shadow-sm"
+              aria-hidden
+            >
+              ✦
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="eyebrow text-violet-800">AI Workspace</p>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-100/70 px-2 py-0.5 text-[10px] font-bold tracking-wide text-emerald-900 uppercase">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                  Ready
+                </span>
+              </div>
+              <h2 className="mt-1 text-xl font-bold text-navy">AI Co-President</h2>
+              <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-navy-soft">
+                Prepares meetings, tracks decisions and follow-ups, searches the inbox, and drafts
+                proposals and updates — every answer cites real suggestions, and nothing saves
+                without your review.
+              </p>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => setSidebarOpen((open) => !open)}
-            className="btn-quiet lg:hidden"
+            className="btn-quiet shrink-0 lg:hidden"
             aria-expanded={sidebarOpen}
             aria-controls="chat-conversation-drawer"
           >
             {sidebarOpen ? "Hide conversations" : "Conversations"}
           </button>
-          <button type="button" onClick={() => setToolPanel("meeting_history")} className="btn-quiet">
+        </div>
+
+        <div className="mt-3.5 flex flex-wrap gap-1.5 border-t border-violet-300/40 pt-3.5">
+          <button type="button" onClick={() => setToolPanel("meeting_history")} className="btn-quiet bg-white/70 py-1.5 text-[12.5px]">
             Meeting history
           </button>
-          <button type="button" onClick={() => setToolPanel("decisions")} className="btn-quiet">
+          <button type="button" onClick={() => setToolPanel("decisions")} className="btn-quiet bg-white/70 py-1.5 text-[12.5px]">
             Decisions
           </button>
-          <button type="button" onClick={() => setToolPanel("actions")} className="btn-quiet">
+          <button type="button" onClick={() => setToolPanel("actions")} className="btn-quiet bg-white/70 py-1.5 text-[12.5px]">
             Actions
           </button>
-          <button type="button" onClick={() => setToolPanel("recorder")} className="btn-quiet">
+          <button type="button" onClick={() => setToolPanel("recorder")} className="btn-quiet bg-white/70 py-1.5 text-[12.5px]">
             Record meeting
           </button>
           <button
             type="button"
             onClick={() => void ensureConversation().then((id) => id && setMemoryManagerOpen(true))}
-            className="btn-quiet"
+            className="btn-quiet bg-white/70 py-1.5 text-[12.5px]"
           >
             Memory manager
           </button>
@@ -414,17 +436,20 @@ export default function AIChat({
           <div className="flex-1 overflow-y-auto p-4 sm:p-5" aria-live="off">
             {!selectedId || !messages || messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-                <p className="font-display text-lg font-semibold text-navy">Ask your AI Co-President</p>
+                <div className="grid h-14 w-14 place-items-center rounded-2xl bg-violet-700 text-2xl text-white shadow-sm" aria-hidden>
+                  ✦
+                </div>
+                <p className="mt-3 font-display text-lg font-semibold text-navy">Ask your AI Co-President</p>
                 <p className="mt-1.5 max-w-sm text-[13px] text-navy-soft">
-                  Some tools are still being connected — I&rsquo;ll tell you honestly if something isn&rsquo;t available yet.
+                  Try a starter below, or ask anything about the inbox, meetings, decisions, and action items.
                 </p>
-                <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+                <div className="mt-5 grid w-full max-w-md grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {STARTER_PROMPTS.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"
                       onClick={() => handleStarterPrompt(prompt)}
-                      className="rounded-full border border-rule bg-paper px-3 py-1.5 text-[12.5px] font-medium text-navy hover:border-accent/40 hover:bg-accent-wash"
+                      className="rounded-[10px] border border-rule bg-paper px-3 py-2 text-left text-[12.5px] font-medium text-navy transition-colors hover:border-accent/40 hover:bg-accent-wash"
                     >
                       {prompt}
                     </button>
@@ -435,10 +460,11 @@ export default function AIChat({
             ) : (
               <ul className="space-y-3">
                 {messages.map((message) => (
-                  <li key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <li key={message.id} className={`flex items-end gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    {message.role === "assistant" && <AssistantAvatar />}
                     <div
                       className={`group rounded-[14px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
-                        message.structured ? "max-w-[95%]" : "max-w-[85%]"
+                        message.structured ? "max-w-[92%]" : "max-w-[82%]"
                       } ${message.role === "user" ? "bg-navy text-white" : "border border-rule bg-paper text-navy"}`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
@@ -456,10 +482,13 @@ export default function AIChat({
                   </li>
                 ))}
                 {sending && (
-                  <li className="flex justify-start">
-                    <div className="flex items-center gap-2 rounded-[14px] border border-rule bg-paper px-3.5 py-2.5 text-[13px] text-navy-soft">
-                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-navy-soft/30 border-t-navy-soft" aria-hidden />
-                      Thinking…
+                  <li className="flex items-end justify-start gap-2">
+                    <AssistantAvatar pulse />
+                    <div className="flex items-center gap-1.5 rounded-[14px] border border-rule bg-paper px-3.5 py-3 text-[13px] text-navy-soft">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:-0.3s]" aria-hidden />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:-0.15s]" aria-hidden />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500" aria-hidden />
+                      <span className="sr-only">Thinking…</span>
                     </div>
                   </li>
                 )}
@@ -481,7 +510,7 @@ export default function AIChat({
 
           <form onSubmit={handleComposerSubmit} className="border-t border-rule p-3 sm:p-4">
             <label htmlFor="chat-composer" className="sr-only">Message</label>
-            <div className="flex gap-2">
+            <div className="flex items-end gap-2 rounded-[16px] border border-rule bg-paper-deep/40 p-1.5 pl-3.5 focus-within:border-accent/50">
               <textarea
                 id="chat-composer"
                 value={composerText}
@@ -496,10 +525,15 @@ export default function AIChat({
                 rows={1}
                 maxLength={4000}
                 placeholder="Ask about the inbox, prepare a meeting, manage memory…"
-                className="field resize-none text-[13.5px]"
+                className="flex-1 resize-none bg-transparent py-2 text-[13.5px] text-navy placeholder:text-navy-soft/70 focus:outline-none"
               />
-              <button type="submit" disabled={sending || !composerText.trim()} className="btn-primary shrink-0 px-4 text-[13px]">
-                Send
+              <button
+                type="submit"
+                disabled={sending || !composerText.trim()}
+                aria-label="Send"
+                className="btn-primary grid h-9 w-9 shrink-0 place-items-center rounded-full p-0 text-base"
+              >
+                ➤
               </button>
             </div>
           </form>
@@ -731,6 +765,17 @@ function PromiseTrackerCard({ report }: { report: Extract<AssistantStructured, {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function AssistantAvatar({ pulse = false }: { pulse?: boolean }) {
+  return (
+    <div
+      aria-hidden
+      className={`grid h-7 w-7 shrink-0 place-items-center rounded-full bg-violet-700 text-[13px] text-white shadow-sm ${pulse ? "animate-pulse" : ""}`}
+    >
+      ✦
     </div>
   );
 }

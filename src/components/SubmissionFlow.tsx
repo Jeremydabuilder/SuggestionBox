@@ -638,22 +638,17 @@ function SuggestionFormFields({
       </div>
 
       <div className="mb-7 border-b border-rule pb-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="eyebrow">Make your voice count</p>
-            <h2 className="mt-2 text-[24px] leading-tight font-bold text-navy sm:text-[28px]">
-              What should be better?
-            </h2>
-          </div>
-          <span className="rounded-full bg-paper-deep px-3 py-1.5 text-[12px] font-semibold text-navy-soft">
-            About 2 minutes
-          </span>
+        <div>
+          <p className="eyebrow">Make your voice count</p>
+          <h2 className="mt-2 text-[24px] leading-tight font-bold text-navy sm:text-[28px]">
+            What should be better?
+          </h2>
         </div>
         <div className="mt-5 grid grid-cols-3 gap-2" aria-hidden>
           {[
             ["01", "The idea"],
             ["02", "Why it matters"],
-            ["03", "Your choice"],
+            ["03", "Your details"],
           ].map(([number, label]) => (
             <div key={number} className="border-t-2 border-navy/15 pt-2">
               <span className="mr-1.5 text-[10px] font-bold text-accent">{number}</span>

@@ -67,7 +67,7 @@ export default function HomePage() {
 
       <footer className="mt-20 grid gap-4 border-t border-rule pt-8 text-sm text-navy-soft sm:grid-cols-3 sm:text-left">
         <p><strong className="block text-navy">Private by default</strong>Your idea is only available to the co-presidents.</p>
-        <p><strong className="block text-navy">Anonymous if you choose</strong>No name or email is saved with an anonymous post.</p>
+        <p><strong className="block text-navy">Never posted publicly</strong>Your name and school email verify you&rsquo;re a real student — they&rsquo;re never shown to anyone but the co-presidents.</p>
         <p><strong className="block text-navy">Every idea is kept</strong>Similar ideas can be grouped, but your words are never deleted.</p>
       </footer>
     </main>
