@@ -22,10 +22,7 @@ export default async function MyIdeasPage() {
           <h1 className="mt-2 text-3xl font-bold text-navy">My ideas</h1>
           <p className="mt-1 text-sm text-navy-soft">Signed in as {user.email}</p>
         </div>
-        <div className="flex gap-2">
-          <Link href="/" className="btn-primary">Send another idea</Link>
-          <form action={signOutStudent}><button className="btn-quiet" type="submit">Sign out</button></form>
-        </div>
+        <form action={signOutStudent}><button className="btn-quiet" type="submit">Sign out</button></form>
       </header>
 
       <div className="mt-8 space-y-3">
@@ -47,6 +44,13 @@ export default async function MyIdeasPage() {
           </article>
         ))}
       </div>
+
+      <Link
+        href="/"
+        className="btn-primary mt-8 flex w-full items-center justify-center py-4 text-base sm:text-lg"
+      >
+        Send another idea
+      </Link>
     </main>
   );
 }
