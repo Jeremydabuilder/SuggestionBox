@@ -166,6 +166,40 @@ export const communicationDraftStructuredSchema = z.object({
 });
 export type CommunicationDraftStructured = z.infer<typeof communicationDraftStructuredSchema>;
 
+/**
+ * Stage 10 UX audit fix: meeting_history, list_decisions, and list_actions
+ * used to always open a full modal on a chat message — a read-only answer
+ * that should appear inline, per the product requirement that the AI
+ * Workspace feel like one chat, not tabs hidden behind panels. These three
+ * schemas carry a small, capped summary read inline; the full,
+ * already-existing modal (MeetingHistory/DecisionLog/ActionItems) is still
+ * one click away via the card's "Open full view" button, or the header's
+ * quick-access buttons — never removed, just no longer the default for a
+ * plain read.
+ */
+export const meetingHistorySummaryStructuredSchema = z.object({
+  type: z.literal("meeting_history_summary"),
+  totalCount: z.number().int().min(0),
+  items: z.array(z.object({ id: z.string().uuid(), headline: z.string().max(300), state: z.string(), createdAt: z.string() })).max(10),
+});
+export type MeetingHistorySummaryStructured = z.infer<typeof meetingHistorySummaryStructuredSchema>;
+
+export const decisionsSummaryStructuredSchema = z.object({
+  type: z.literal("decisions_summary"),
+  totalCount: z.number().int().min(0),
+  items: z.array(z.object({ id: z.string().uuid(), decisionText: z.string().max(2000), createdAt: z.string() })).max(10),
+});
+export type DecisionsSummaryStructured = z.infer<typeof decisionsSummaryStructuredSchema>;
+
+export const actionsSummaryStructuredSchema = z.object({
+  type: z.literal("actions_summary"),
+  totalCount: z.number().int().min(0),
+  items: z
+    .array(z.object({ id: z.string().uuid(), actionText: z.string().max(2000), completed: z.boolean(), deadline: z.string().nullable() }))
+    .max(10),
+});
+export type ActionsSummaryStructured = z.infer<typeof actionsSummaryStructuredSchema>;
+
 export const assistantStructuredSchema = z.discriminatedUnion("type", [
   memoryProposalStructuredSchema,
   statusStructuredSchema,
@@ -176,6 +210,9 @@ export const assistantStructuredSchema = z.discriminatedUnion("type", [
   promiseTrackerStructuredSchema,
   proposalDraftStructuredSchema,
   communicationDraftStructuredSchema,
+  meetingHistorySummaryStructuredSchema,
+  decisionsSummaryStructuredSchema,
+  actionsSummaryStructuredSchema,
 ]);
 export type AssistantStructured = z.infer<typeof assistantStructuredSchema>;
 

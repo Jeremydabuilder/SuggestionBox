@@ -297,6 +297,32 @@ describe("RecorderCleanupPanel.tsx — Stage 9's recorder never mutates workspac
   });
 });
 
+describe("Stage 10 UX audit — AIChat.tsx no longer force-opens a modal for a plain read", () => {
+  const aiChatSource = read("src/components/president/AIChat.tsx");
+
+  test("a chat message classified as meeting_history, list_decisions, or list_actions does not auto-open a panel", () => {
+    const start = aiChatSource.indexOf("if (result.data.toolStatus");
+    const end = aiChatSource.indexOf("\n    }", start);
+    const block = aiChatSource.slice(start, end);
+    assert.doesNotMatch(block, /"meeting_history"|"list_decisions"|"list_actions"/);
+  });
+
+  test("memory_manager, meeting_prep, and meeting_cleanup still open their panel — only the pure reads changed", () => {
+    const start = aiChatSource.indexOf("if (result.data.toolStatus");
+    const end = aiChatSource.indexOf("\n    }", start);
+    const block = aiChatSource.slice(start, end);
+    assert.match(block, /"memory_manager"/);
+    assert.match(block, /"meeting_prep"/);
+    assert.match(block, /"meeting_cleanup"/);
+  });
+
+  test("the three read-only summary cards each offer an 'Open full view' handoff to the existing panel, never a new mutation path", () => {
+    assert.match(aiChatSource, /onOpenPanel\("meeting_history"\)/);
+    assert.match(aiChatSource, /onOpenPanel\("decisions"\)/);
+    assert.match(aiChatSource, /onOpenPanel\("actions"\)/);
+  });
+});
+
 describe("no logging of message content — only the documented safe metadata fields", () => {
   test("the RouteMetadata type itself has no field for message, context, or model output", () => {
     const interfaceBody = routerSource.match(/export interface RouteMetadata \{([\s\S]*?)\}/)?.[1] ?? "";

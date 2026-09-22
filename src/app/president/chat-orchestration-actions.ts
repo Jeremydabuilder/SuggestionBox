@@ -11,6 +11,9 @@ import { getPromiseTracker } from "./promise-tracker-actions";
 import { answerWorkspaceQuestion } from "./chat-inbox-answer";
 import { buildProposalDraft } from "./chat-proposal-builder";
 import { buildCommunicationDraft } from "./chat-communication-draft";
+import { listMeetingBriefs } from "./workspace-actions";
+import { listDecisions } from "./decisions-actions";
+import { listActionItems } from "./action-items-actions";
 import type { ActionResult } from "./actions";
 import type { AssistantStructured, ChatMessage } from "@/lib/chat-store";
 
@@ -66,11 +69,48 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
   } else if (execution.status === "ok" && execution.kind === "meeting_prep") {
     assistantContent = "Opening Meeting Prep.";
   } else if (execution.status === "ok" && execution.kind === "meeting_history") {
-    assistantContent = "Opening Meeting History.";
+    // Stage 10 UX fix: a plain read answers inline, in the chat itself —
+    // the full MeetingHistory panel is still one click away ("Open full
+    // view" on the card, or the header's own quick-access button), but a
+    // read-only question no longer forces a modal open by default.
+    const briefsResult = await listMeetingBriefs(false);
+    if (briefsResult.ok) {
+      const items = briefsResult.data.slice(0, 10);
+      assistantContent = items.length === 0 ? "No saved meetings yet." : `${briefsResult.data.length} saved meeting${briefsResult.data.length === 1 ? "" : "s"}.`;
+      structured = {
+        type: "meeting_history_summary",
+        totalCount: briefsResult.data.length,
+        items: items.map((b) => ({ id: b.id, headline: b.headline, state: b.state, createdAt: b.createdAt })),
+      };
+    } else {
+      assistantContent = briefsResult.error;
+    }
   } else if (execution.status === "ok" && execution.kind === "list_decisions") {
-    assistantContent = "Opening the Decision Log.";
+    const decisionsResult = await listDecisions();
+    if (decisionsResult.ok) {
+      const items = decisionsResult.data.slice(0, 10);
+      assistantContent = items.length === 0 ? "No decisions logged yet." : `${decisionsResult.data.length} decision${decisionsResult.data.length === 1 ? "" : "s"} logged.`;
+      structured = {
+        type: "decisions_summary",
+        totalCount: decisionsResult.data.length,
+        items: items.map((d) => ({ id: d.id, decisionText: d.decisionText, createdAt: d.createdAt })),
+      };
+    } else {
+      assistantContent = decisionsResult.error;
+    }
   } else if (execution.status === "ok" && execution.kind === "list_actions") {
-    assistantContent = "Opening Action Items.";
+    const actionsResult = await listActionItems();
+    if (actionsResult.ok) {
+      const items = actionsResult.data.slice(0, 10);
+      assistantContent = items.length === 0 ? "No action items yet." : `${actionsResult.data.length} action item${actionsResult.data.length === 1 ? "" : "s"}.`;
+      structured = {
+        type: "actions_summary",
+        totalCount: actionsResult.data.length,
+        items: items.map((a) => ({ id: a.id, actionText: a.actionText, completed: a.completed, deadline: a.deadline })),
+      };
+    } else {
+      assistantContent = actionsResult.error;
+    }
   } else if (execution.status === "ok" && execution.kind === "since_last_meeting") {
     // Read-only and safe to answer inline — no panel, no confirmation, just
     // a structured card built from a deterministic report (see

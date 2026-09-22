@@ -185,11 +185,12 @@ export default function AIChat({
     await loadConversations();
 
     if (result.data.toolStatus === "ok") {
+      // meeting_history / list_decisions / list_actions deliberately do NOT
+      // open a panel here — Stage 10: a plain read answers inline in the
+      // chat itself (see StructuredCard below); the full panel is only a
+      // click away on the card itself or the header's quick-access button.
       if (result.data.intent === "memory_manager") setMemoryManagerOpen(true);
       else if (result.data.intent === "meeting_prep") setToolPanel("meeting_prep");
-      else if (result.data.intent === "meeting_history") setToolPanel("meeting_history");
-      else if (result.data.intent === "list_decisions") setToolPanel("decisions");
-      else if (result.data.intent === "list_actions") setToolPanel("actions");
       else if (result.data.intent === "meeting_cleanup") setToolPanel("recorder");
     }
   }
@@ -441,7 +442,7 @@ export default function AIChat({
                       } ${message.role === "user" ? "bg-navy text-white" : "border border-rule bg-paper text-navy"}`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
-                      {message.structured && <StructuredCard structured={message.structured} />}
+                      {message.structured && <StructuredCard structured={message.structured} onOpenPanel={setToolPanel} />}
                       {message.role === "assistant" && (
                         <button
                           type="button"
@@ -561,7 +562,7 @@ export default function AIChat({
  * browser, so this never re-fetches, re-validates, or trusts anything
  * beyond what that schema already guarantees.
  */
-function StructuredCard({ structured }: { structured: AssistantStructured }) {
+function StructuredCard({ structured, onOpenPanel }: { structured: AssistantStructured; onOpenPanel: (panel: Exclude<ToolPanel, null>) => void }) {
   switch (structured.type) {
     case "since_last_meeting_report":
       return <SinceLastMeetingCard report={structured} />;
@@ -577,9 +578,92 @@ function StructuredCard({ structured }: { structured: AssistantStructured }) {
       return <CitationListCard label="Sources" citations={structured.citations} />;
     case "communication_draft":
       return <CitationListCard label="Sources" citations={structured.citations} />;
+    case "meeting_history_summary":
+      return <MeetingHistorySummaryCard summary={structured} onOpenPanel={onOpenPanel} />;
+    case "decisions_summary":
+      return <DecisionsSummaryCard summary={structured} onOpenPanel={onOpenPanel} />;
+    case "actions_summary":
+      return <ActionsSummaryCard summary={structured} onOpenPanel={onOpenPanel} />;
     default:
       return null;
   }
+}
+
+function OpenFullViewButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button type="button" onClick={onClick} className="mt-2 text-[11.5px] font-semibold text-accent-ink underline">
+      {label}
+    </button>
+  );
+}
+
+function MeetingHistorySummaryCard({
+  summary,
+  onOpenPanel,
+}: {
+  summary: Extract<AssistantStructured, { type: "meeting_history_summary" }>;
+  onOpenPanel: (panel: Exclude<ToolPanel, null>) => void;
+}) {
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      {summary.items.length > 0 && (
+        <ul className="space-y-1.5 text-[12.5px] text-navy">
+          {summary.items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{item.headline}</span>
+              <span className="shrink-0 text-[11px] capitalize text-navy-soft">{item.state}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <OpenFullViewButton onClick={() => onOpenPanel("meeting_history")} label="Open full meeting history" />
+    </div>
+  );
+}
+
+function DecisionsSummaryCard({
+  summary,
+  onOpenPanel,
+}: {
+  summary: Extract<AssistantStructured, { type: "decisions_summary" }>;
+  onOpenPanel: (panel: Exclude<ToolPanel, null>) => void;
+}) {
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      {summary.items.length > 0 && (
+        <ul className="space-y-1.5 text-[12.5px] text-navy">
+          {summary.items.map((item) => (
+            <li key={item.id} className="truncate">{item.decisionText}</li>
+          ))}
+        </ul>
+      )}
+      <OpenFullViewButton onClick={() => onOpenPanel("decisions")} label="Open full decision log" />
+    </div>
+  );
+}
+
+function ActionsSummaryCard({
+  summary,
+  onOpenPanel,
+}: {
+  summary: Extract<AssistantStructured, { type: "actions_summary" }>;
+  onOpenPanel: (panel: Exclude<ToolPanel, null>) => void;
+}) {
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      {summary.items.length > 0 && (
+        <ul className="space-y-1.5 text-[12.5px] text-navy">
+          {summary.items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-2">
+              <span className="truncate">{item.actionText}</span>
+              <span className="shrink-0 text-[11px] text-navy-soft">{item.completed ? "Done" : item.deadline ? `Due ${item.deadline}` : "Open"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <OpenFullViewButton onClick={() => onOpenPanel("actions")} label="Open full action items" />
+    </div>
+  );
 }
 
 function CitationListCard({ label, citations }: { label: string; citations: Array<{ ref: string; title: string }> }) {

@@ -129,3 +129,24 @@ describe("Stage 9 — meeting_cleanup just opens the recorder panel; no audio or
     assert.doesNotMatch(source, /transcribeAudio|reviewMeetingTranscript|meeting-transcription-actions|meeting-cleanup-actions/);
   });
 });
+
+describe("Stage 10 UX fix — meeting_history, list_decisions, and list_actions answer inline from a real read, not a fixed 'opening' message", () => {
+  test("meeting_history delegates to listMeetingBriefs and builds a meeting_history_summary card from the real result", () => {
+    assert.match(source, /listMeetingBriefs\(false\)/);
+    assert.match(source, /type:\s*"meeting_history_summary"/);
+  });
+
+  test("list_decisions delegates to listDecisions and builds a decisions_summary card from the real result", () => {
+    assert.match(source, /listDecisions\(\)/);
+    assert.match(source, /type:\s*"decisions_summary"/);
+  });
+
+  test("list_actions delegates to listActionItems and builds an actions_summary card from the real result", () => {
+    assert.match(source, /listActionItems\(\)/);
+    assert.match(source, /type:\s*"actions_summary"/);
+  });
+
+  test("none of the three read-only kinds still use the old fixed 'Opening X.' message", () => {
+    assert.doesNotMatch(source, /"Opening Meeting History\."|"Opening the Decision Log\."|"Opening Action Items\."/);
+  });
+});
