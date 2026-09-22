@@ -37,15 +37,49 @@ slides into the slot, the box bounces, and **"Your idea is in the box!"** appear
 **Submit another idea** button. `prefers-reduced-motion` skips straight to the message.
 
 ### President panel (`/president`)
-Counters for total / unread / being discussed / completed; search; category, status and
-read-state filters; newest-or-oldest sorting; an archive toggle; a prominent banner when
-new suggestions arrive; and per-suggestion: full text, submission date and time, the
-student's name and email when given, a copy-email button, the eight statuses, shared
-internal notes, a status-change history, and archive. Both co-presidents see the same
-data, updated live over Supabase Realtime with a 45-second polling fallback.
+Three tabs — **Inbox**, **AI Workspace**, and **Trash** — plus a **Help** tab with the
+full co-president guide. The Inbox tab has counters for total / unread / being discussed
+/ completed; search; category, status and read-state filters; newest-or-oldest sorting;
+an archive toggle; a prominent banner when new suggestions arrive; and per-suggestion:
+full text, submission date and time, the student's name and email when given, a
+copy-email button, the eight statuses, shared internal notes, a status-change history,
+archive, and **Move to Trash**. Both co-presidents see the same data, updated live over
+Supabase Realtime with a 45-second polling fallback.
+
+### AI Workspace and the Co-President Agent
+A chat-based AI assistant that can search the inbox, surface trends, check
+follow-through gaps, prepare and save meeting briefs, log decisions and actions,
+draft proposals and announcements, and manage its own memory — always by proposing
+a plan or a draft and waiting for an explicit confirmation before anything changes.
+It never sees a student's name or email, and it can never trash, restore, or
+permanently delete a suggestion. **The full, exact behavior — what it can and can't
+do, how memory and confirmation work, and what happens if the AI backend is
+unavailable — lives in the in-app guide, not here**, so the two can never drift
+apart: open **Help** inside `/president`, or ask the agent itself (its answers to
+"how does X work" questions come from that exact same source, with no AI call
+involved). Requires `GROQ_API_KEY` — see step 5. Deterministic pieces (Trend Radar,
+Promise Tracker, Since Last Meeting) work with no key at all.
+
+### Trash and permanent deletion
+A recoverable holding area, separate from the **Archived** status. A trashed
+suggestion disappears from the inbox, dashboard counts, duplicate scans, trends, the
+agent, and a student's own My Ideas page — **Restore** brings it back exactly as it
+was. Permanently deleting one first shows what else would go with it (notes, status
+history, duplicate links, meeting citations), then requires typing an exact
+confirmation phrase and a second, separate click — it cannot be undone, and only a
+signed-in co-president can do it, never the agent. See **Help → How is this
+different from Archive?** in the app for the full explanation.
+
+### Help pages
+`/help` (public, for students) and the **Help** tab inside `/president` (co-presidents
+only) both read from the same content file (`src/lib/help-content.ts`), which the
+agent's own deterministic help answers also read from — so the student page, the
+president guide, and what the agent tells you can never say something different about
+the same feature. Both pages are searchable and collapsible, and print cleanly.
 
 ### Statuses
 New · Reviewing · Discussing · Approved · In Progress · Completed · Declined · Archived
+(Trashed is not a status — see **Trash and permanent deletion** above.)
 
 ### Duplicate detection
 When several students send in the same idea, the dashboard says so. Matches are
@@ -202,12 +236,22 @@ Two ways. Both end in the same place; pick whichever you prefer.
 ### Option A — the SQL Editor (no tools, no secrets)
 
 1. Supabase dashboard → **SQL Editor → New query**.
-2. Run the four files in `supabase/migrations/` **in order**, each as its own
-   query:
+2. Run every file in `supabase/migrations/` **in order**, each as its own
+   query — the filenames sort chronologically, so alphabetical order is
+   correct order:
    1. `20260101000000_init.sql`
    2. `20260102000000_duplicates.sql`
    3. `20260103000000_duplicate_reversals.sql`
    4. `20260921000000_student_tracking.sql`
+   5. `20260922000000_ai_workspace.sql`
+   6. `20260923000000_verified_student_identity.sql`
+   7. `20260924000000_meeting_citation_refs.sql`
+   8. `20260925000000_ai_chat.sql`
+   9. `20260926000000_trash.sql`
+
+   Check `supabase/migrations/` itself before you start — a new migration
+   may have been added since this was written; run every file present, in
+   filename order, not just the ones listed above.
 
 ### Option B — the Supabase CLI
 
@@ -239,25 +283,27 @@ Expected output from step 4:
 Applying migration 20260101000000_init.sql...
 Applying migration 20260102000000_duplicates.sql...
 Applying migration 20260103000000_duplicate_reversals.sql...
+Applying migration 20260921000000_student_tracking.sql...
+Applying migration 20260922000000_ai_workspace.sql...
+Applying migration 20260923000000_verified_student_identity.sql...
+Applying migration 20260924000000_meeting_citation_refs.sql...
+Applying migration 20260925000000_ai_chat.sql...
+Applying migration 20260926000000_trash.sql...
 Finished supabase db push.
 ```
 
 ### Either way, verify
 
 Run `supabase/tests/verify_schema.sql` in the SQL Editor. It is read-only and
-adds no data. You want four `PASS` lines:
-
-```
-PASS: all 7 expected tables exist
-PASS: RLS enabled on all 7 public tables
-PASS: anon holds INSERT on suggestions and nothing more
-PASS: anon holds no privileges on any other table
-PASS: is_president() exists
-```
-
-The seven tables are `suggestions`, `internal_notes`, `authorized_presidents`,
-`status_history` and `suggestion_matches`, plus the `submission_log` and
-`digest_runs` bookkeeping tables.
+adds no data — every line should read `PASS`. It predates the AI Workspace,
+chat, and Trash migrations and only checks the original seven tables and
+policies (`suggestions`, `internal_notes`, `authorized_presidents`,
+`status_history`, `suggestion_matches`, `submission_log`, `digest_runs`), so a
+`PASS` there confirms the foundation is correct, not every later migration —
+there is no equivalent automated check yet for the newer tables. For those,
+`test/*-guard.test.ts` (`npm test`) checks the application code that talks to
+them, and the migration files themselves are the source of truth for what
+each one adds.
 
 ## 3. Add the two co-presidents
 
@@ -565,8 +611,41 @@ Work through all five:
    disallowed in `robots.txt`. It is not findable — though the real protection is the
    server-side check, not obscurity.
 
-To remove a president later, delete their row from `authorized_presidents` **and** take
-them out of `PRESIDENT_EMAILS`. They lose access on their next request.
+To remove a president later, delete their row from `authorized_presidents`. There is no
+second place to update — that table is the only list — and they lose access on their
+next request.
+
+---
+
+## 11. Backups, and using Trash safely
+
+**Backups are Supabase's job, not this app's.** Every paid Supabase plan takes
+automatic daily backups (Point-in-Time Recovery on higher tiers); the free tier does
+not. Check **Project Settings → Database → Backups** in your Supabase dashboard, and if
+you're on the free tier and this matters to you, either upgrade or export a copy
+yourself now and then: **Database → Backups → (or) the CLI's `supabase db dump`.**
+
+**Restoring** means restoring the whole Supabase project to a snapshot through
+Supabase's own dashboard — there is nothing in this app that does that, and there
+shouldn't be; a web app should never hold the keys to roll back its own database.
+
+**Trash is the safety net for a single suggestion**, and it's built into the app
+itself — no database or Supabase knowledge needed:
+
+1. A president moves a suggestion to Trash from its detail view, or from the Trash
+   tab, with an optional reason only the co-presidents see.
+2. It's fully recoverable with **Restore**, at any time, by either president —
+   nothing about it is lost or changed.
+3. **Permanently deleting** one is the only irreversible action in this app. It
+   shows exactly what else would be removed with it first (internal notes, status
+   history, duplicate links, meeting citations), then requires typing an exact
+   confirmation phrase for that specific suggestion and a second, separate
+   confirmation click. There is no way to permanently delete more than one at a time.
+
+If a suggestion needs to disappear for a specific student's privacy or safety and you're
+unsure whether Trash alone is enough, prefer Trash (reversible) over permanent deletion
+until you're certain — permanent deletion cannot be undone by anyone, including Supabase
+support, once it runs.
 
 ---
 
@@ -576,18 +655,25 @@ them out of `PRESIDENT_EMAILS`. They lose access on their next request.
 src/
   app/
     page.tsx                     Student landing page
+    help/                        Public student Help page (searchable, print-friendly)
     api/suggestions/route.ts     Validate → rate-limit → Turnstile → sanitise → save
     api/cron/digest/route.ts     Optional daily digest, secret-protected
     auth/callback/route.ts       Magic-link exchange + roster check
-    president/                   The private panel, its login page and server actions
+    my-ideas/                    Optional student account: track your own submissions
+    president/                   The private panel: server actions, chat routing/agent,
+                                  trash, algorithms (trends, promise tracker, clustering)
   components/
     SubmissionFlow.tsx           The form and the fold-and-post animation
     SuggestionBoxArt.tsx         The illustrated box
     Turnstile.tsx                Cloudflare Turnstile widget
-    president/                   Panel, detail pane, shared UI
-  lib/                           env, auth, validation, sanitising, rate limiting, digest
+    president/                   Panel, detail pane, AI Workspace/chat, Trash, Help,
+                                  meeting/decision/action panels, shared UI
+  lib/                           env, auth, validation, sanitising, rate limiting, digest,
+                                  duplicate detection, trend/promise-tracker/clustering
+                                  algorithms, chat intents/classifier, help-content.ts
   middleware.ts                  Refreshes the Supabase session cookie
-supabase/migrations/             Schema, policies, triggers, grants, president roster
+supabase/migrations/             Schema, policies, triggers, grants, president roster —
+                                  run every file in filename order (see step 2)
 supabase/config.toml             Makes `supabase link` / `db push` work in this repo
 supabase/tests/                  Schema verification and access-control checks
 supabase/maintenance/            One-off operator scripts (clearing test data)

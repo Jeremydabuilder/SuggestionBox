@@ -1,5 +1,6 @@
 import { CATEGORY_VALUES, STATUS_VALUES, type Category, type Status } from "./types.ts";
 import { parseIntentArgs, type RouteDecision } from "./chat-intents.ts";
+import { matchHelpTopic } from "./help-content.ts";
 
 /**
  * Zero-Groq routing for obvious commands and every suggested starter
@@ -204,6 +205,13 @@ export function routeDeterministically(rawMessage: string): RouteDecision | null
     }
     return built;
   }
+
+  // A last, deliberately narrow attempt: does this look like one of the
+  // fixed "how does X work" help questions? Tried only after every more
+  // specific rule above has already had first refusal, so "show trends"
+  // still opens Trend Radar itself rather than explaining it.
+  const helpTopic = matchHelpTopic(message, "president");
+  if (helpTopic) return decision("help", { topic: helpTopic.id });
 
   return null;
 }

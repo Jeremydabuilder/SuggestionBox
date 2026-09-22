@@ -31,7 +31,7 @@ type Stage =
  * and a second, separate button click consumes that token. Either step
  * can be cancelled with nothing deleted.
  */
-export default function TrashPanel({ onClose }: { onClose?: () => void }) {
+export default function TrashPanel({ onClose, onOpenHelp }: { onClose?: () => void; onOpenHelp?: () => void }) {
   const [items, setItems] = useState<TrashedSuggestion[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -103,6 +103,14 @@ export default function TrashPanel({ onClose }: { onClose?: () => void }) {
           <h2 className="text-lg font-bold text-navy">Trash</h2>
           <p className="mt-1 text-[12.5px] text-navy-soft">
             Moved here first, recoverable at any time — nothing is permanently deleted until you confirm it twice.
+            {onOpenHelp && (
+              <>
+                {" "}
+                <button type="button" onClick={onOpenHelp} className="underline-offset-2 hover:underline">
+                  How is this different from Archive?
+                </button>
+              </>
+            )}
           </p>
         </div>
         {onClose && (

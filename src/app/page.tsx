@@ -23,6 +23,8 @@ export default function HomePage() {
         <nav className="flex items-center gap-3 text-sm font-medium text-navy-soft">
           <a href="/my-ideas" className="underline-offset-4 hover:text-navy hover:underline">My ideas</a>
           <span aria-hidden className="text-rule">·</span>
+          <a href="/help" className="underline-offset-4 hover:text-navy hover:underline">Help</a>
+          <span aria-hidden className="text-rule">·</span>
           <a href="/president" className="underline-offset-4 hover:text-navy hover:underline">President sign-in</a>
         </nav>
       </header>
@@ -68,8 +70,11 @@ export default function HomePage() {
       <footer className="mt-20 grid gap-4 border-t border-rule pt-8 text-sm text-navy-soft sm:grid-cols-3 sm:text-left">
         <p><strong className="block text-navy">Private by default</strong>Your idea is only available to the co-presidents.</p>
         <p><strong className="block text-navy">Never posted publicly</strong>Your name and school email verify you&rsquo;re a real student — they&rsquo;re never shown to anyone but the co-presidents.</p>
-        <p><strong className="block text-navy">Every idea is kept</strong>Similar ideas can be grouped, but your words are never deleted.</p>
+        <p><strong className="block text-navy">Ideas aren&rsquo;t deleted lightly</strong>Similar ideas can be grouped. A co-president can remove one in rare cases, always recoverable first.</p>
       </footer>
+      <p className="mt-6 text-center text-sm text-navy-soft">
+        <a href="/help" className="underline-offset-4 hover:text-navy hover:underline">How this works &amp; your privacy</a>
+      </p>
     </main>
   );
 }

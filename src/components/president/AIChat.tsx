@@ -25,8 +25,9 @@ import DecisionLog, { type PrefillDecision } from "./DecisionLog";
 import ActionItems, { type PrefillAction } from "./ActionItems";
 import RecorderCleanupPanel from "./RecorderCleanupPanel";
 import TrashPanel from "./TrashPanel";
+import HelpPanel from "./HelpPanel";
 
-type ToolPanel = "meeting_prep" | "meeting_history" | "decisions" | "actions" | "recorder" | "trash" | null;
+type ToolPanel = "meeting_prep" | "meeting_history" | "decisions" | "actions" | "recorder" | "trash" | "help" | null;
 
 const STARTER_PROMPTS = [
   "Prepare our next meeting",
@@ -335,6 +336,9 @@ export default function AIChat({
           <button type="button" onClick={() => setToolPanel("trash")} className="btn-quiet bg-white/70 py-1.5 text-[12.5px]">
             Trash
           </button>
+          <button type="button" onClick={() => setToolPanel("help")} className="btn-quiet bg-white/70 py-1.5 text-[12.5px]">
+            Help
+          </button>
           <button
             type="button"
             onClick={() => void ensureConversation().then((id) => id && setMemoryManagerOpen(true))}
@@ -635,7 +639,8 @@ export default function AIChat({
               onClose={() => setToolPanel(null)}
             />
           )}
-          {toolPanel === "trash" && <TrashPanel onClose={() => setToolPanel(null)} />}
+          {toolPanel === "trash" && <TrashPanel onClose={() => setToolPanel(null)} onOpenHelp={() => setToolPanel("help")} />}
+          {toolPanel === "help" && <HelpPanel />}
         </ToolPanelModal>
       )}
     </section>
@@ -1033,6 +1038,7 @@ const TOOL_PANEL_TITLES: Record<Exclude<ToolPanel, null>, string> = {
   actions: "Action items",
   recorder: "Record & clean up a meeting",
   trash: "Trash",
+  help: "Help & guide",
 };
 
 /**

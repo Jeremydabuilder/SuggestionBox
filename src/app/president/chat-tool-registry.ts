@@ -1,4 +1,5 @@
 import type { ChatIntent, RouteDecision } from "@/lib/chat-intents";
+import { findHelpTopic } from "../../lib/help-content.ts";
 
 /**
  * No `server-only` import here, deliberately — this is pure metadata (no
@@ -262,7 +263,14 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   const entry = CHAT_TOOL_REGISTRY[decision.intent];
 
   if (decision.intent === "help" && entry.status === "implemented") {
-    return { status: "ok", kind: "help", message: HELP_MESSAGE };
+    // A specific "how does X work" question resolves to the exact same
+    // wording help-content.ts gives the co-president Help page itself —
+    // the two can never say something different about the same feature.
+    // An unrecognized or absent topic id falls back to the generic list,
+    // never an error.
+    const args = decision.args as { topic?: string };
+    const topic = args.topic ? findHelpTopic(args.topic) : undefined;
+    return { status: "ok", kind: "help", message: topic ? topic.answer.join("\n\n") : HELP_MESSAGE };
   }
 
   if (decision.intent === "memory_manager" && entry.status === "implemented") {

@@ -49,7 +49,10 @@ const shortText = (max: number) => z.string().trim().min(1).max(max);
  * field for any of that anywhere below.
  */
 export const intentArgSchemas = {
-  help: z.object({}).strict(),
+  // topic, when set, is always one of help-content.ts's own topic ids —
+  // never arbitrary text. See chat-tool-registry.ts's executeRoute for how
+  // an unrecognized id safely falls back to the generic help message.
+  help: z.object({ topic: z.string().max(64).optional() }).strict(),
 
   search_inbox: z
     .object({
