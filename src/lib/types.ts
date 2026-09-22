@@ -105,6 +105,22 @@ export interface Suggestion {
   submitter_user_id?: string | null;
 }
 
+/**
+ * A trashed suggestion, as returned by list_trashed_suggestions(). Never
+ * the shape of an ordinary suggestion read — a trashed row is otherwise
+ * invisible, and this carries only what the Trash view needs to show.
+ */
+export interface TrashedSuggestion {
+  id: string;
+  title: string;
+  category: Category;
+  status: Status;
+  trashed_at: string;
+  trashed_by: string | null;
+  trash_reason: string | null;
+  created_at: string;
+}
+
 export interface InternalNote {
   id: string;
   suggestion_id: string;

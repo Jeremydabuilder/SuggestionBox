@@ -14,6 +14,12 @@ export default async function MyIdeasPage() {
   const { data, error } = await supabase.from("suggestions").select("*").eq("submitter_user_id", user.id).order("created_at", { ascending: false });
   const suggestions = (data ?? []) as Suggestion[];
 
+  // A trashed idea is never returned by the query above (RLS excludes it
+  // the same way it does for a president's ordinary reads) — this is the
+  // only thing a student is ever told about one: how many, never which
+  // one, never why, never who. No email is sent for this either.
+  const { data: removedCount } = await supabase.rpc("count_my_removed_suggestions");
+
   return (
     <main className="mx-auto min-h-dvh w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-12">
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -24,6 +30,12 @@ export default async function MyIdeasPage() {
         </div>
         <form action={signOutStudent}><button className="btn-quiet" type="submit">Sign out</button></form>
       </header>
+
+      {typeof removedCount === "number" && removedCount > 0 && (
+        <div className="mt-6 rounded-[10px] border border-rule bg-white/70 px-4 py-3 text-sm text-navy-soft">
+          {removedCount === 1 ? "One of your ideas is" : `${removedCount} of your ideas are`} no longer shown here — removed from active review.
+        </div>
+      )}
 
       <div className="mt-8 space-y-3">
         {error ? (

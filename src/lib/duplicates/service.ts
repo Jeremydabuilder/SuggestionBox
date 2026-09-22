@@ -59,6 +59,7 @@ export async function detectDuplicatesFor(
     .select(MATCHABLE_COLUMNS)
     .neq("id", suggestionId)
     .neq("status", "archived")
+    .is("trashed_at", null)
     .order("created_at", { ascending: false })
     .limit(CANDIDATE_LIMIT);
 
@@ -126,6 +127,7 @@ export async function rescanAllDuplicates(
     .from("suggestions")
     .select(MATCHABLE_COLUMNS)
     .neq("status", "archived")
+    .is("trashed_at", null)
     .order("created_at", { ascending: false })
     .limit(CANDIDATE_LIMIT);
 

@@ -32,6 +32,7 @@ import {
   setPrimarySuggestion,
   setStatus,
 } from "@/app/president/actions";
+import { moveToTrash } from "@/app/president/trash-actions";
 import {
   ArchiveIcon,
   CloseIcon,
@@ -65,6 +66,9 @@ export default function SuggestionDetail({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [savingNote, setSavingNote] = useState(false);
+  const [trashConfirmOpen, setTrashConfirmOpen] = useState(false);
+  const [trashReason, setTrashReason] = useState("");
+  const [trashing, setTrashing] = useState(false);
   const notesEndRef = useRef<HTMLDivElement>(null);
 
   const suggestionId = suggestion.id;
@@ -146,6 +150,20 @@ export default function SuggestionDetail({
       const result = await markRead(suggestionId, !suggestion.is_read);
       if (!result.ok) setError(result.error);
     });
+  }
+
+  async function confirmMoveToTrash() {
+    setTrashing(true);
+    const result = await moveToTrash(suggestionId, trashReason);
+    setTrashing(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    // A trashed suggestion is immediately invisible to every ordinary
+    // read, this panel included — close it rather than show a now-stale
+    // detail view.
+    onClose();
   }
 
   async function removeNote(noteId: string) {
@@ -295,7 +313,54 @@ export default function SuggestionDetail({
                 <ArchiveIcon /> Restore from archive
               </button>
             )}
+            {!trashConfirmOpen && (
+              <button
+                type="button"
+                onClick={() => setTrashConfirmOpen(true)}
+                disabled={pending}
+                className="btn-quiet border-rose-300 text-rose-800"
+              >
+                Move to Trash
+              </button>
+            )}
           </div>
+          {trashConfirmOpen && (
+            <div className="mt-3 rounded-[8px] border border-rose-200 bg-rose-50/60 p-3">
+              <p className="text-[12.5px] font-semibold text-rose-900">
+                Move this suggestion to Trash? It is fully recoverable until someone permanently deletes it from there.
+              </p>
+              <label className="mt-2 block text-[11.5px] font-semibold text-navy-soft">Reason (optional, seen only by co-presidents)</label>
+              <input
+                type="text"
+                value={trashReason}
+                onChange={(e) => setTrashReason(e.target.value)}
+                maxLength={500}
+                className="mt-1 w-full rounded-[8px] border border-rule px-2.5 py-1.5 text-[13px]"
+                placeholder="e.g. duplicate of another idea"
+              />
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={confirmMoveToTrash}
+                  disabled={trashing}
+                  className="btn-quiet border-rose-300 text-rose-800"
+                >
+                  {trashing ? "Moving…" : "Confirm move to Trash"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTrashConfirmOpen(false);
+                    setTrashReason("");
+                  }}
+                  disabled={trashing}
+                  className="btn-quiet"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* possible duplicates */}

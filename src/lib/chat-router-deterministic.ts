@@ -42,6 +42,8 @@ const STARTER_PROMPTS: Array<{ match: RegExp; build: () => RouteDecision }> = [
   { match: /^review meeting history$/i, build: () => decision("meeting_history", {}) },
   { match: /^show meeting history$/i, build: () => decision("meeting_history", {}) },
   { match: /^manage memory$/i, build: () => decision("memory_manager", {}) },
+  { match: /^open trash$/i, build: () => decision("trash", {}) },
+  { match: /^show trash$/i, build: () => decision("trash", {}) },
   { match: /^help$/i, build: () => decision("help", {}) },
   { match: /^what can you do\??$/i, build: () => decision("help", {}) },
 ];
@@ -159,6 +161,12 @@ const RULES: Rule[] = [
     match:
       /\b(promise|follow[- ]?up)s?\b.*\b(tracker|track|gaps?|missing)\b|\b(tracker|track|gaps?|missing)\b.*\b(promise|follow[- ]?up)s?\b|\bdecisions?\b.*\bwithout\b.*\bactions?\b|\bwhat needs (a )?follow[- ]?up\b/i,
     build: () => decision("promise_tracker", {}),
+  },
+  // Trash — read-only "open the panel" only; nothing here can move,
+  // restore, or delete anything (see chat-intents.ts's trash schema).
+  {
+    match: /\btrash\b|\bpermanently delet(e|ed|ing)\b|\brecover(ed|y)? (a |an |the )?(deleted|removed|trashed) (suggestion|idea)\b/i,
+    build: () => decision("trash", {}),
   },
   // Help
   {

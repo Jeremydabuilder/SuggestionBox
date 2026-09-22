@@ -20,10 +20,11 @@ import {
 import { matchCountFor, relatedGroupSize } from "@/lib/duplicates";
 import { rescanDuplicates } from "@/app/president/actions";
 import AIWorkspace from "./AIWorkspace";
+import TrashPanel from "./TrashPanel";
 
 type SortOrder = "newest" | "oldest";
 type ReadFilter = "all" | "unread" | "read";
-type PanelView = "inbox" | "workspace";
+type PanelView = "inbox" | "workspace" | "trash";
 
 const POLL_INTERVAL_MS = 45_000;
 
@@ -340,6 +341,16 @@ export default function PresidentPanel({
         >
           AI Workspace
         </button>
+        <button
+          type="button"
+          onClick={() => setView("trash")}
+          aria-current={view === "trash" ? "page" : undefined}
+          className={`flex-1 rounded-[9px] px-4 py-2.5 text-sm font-semibold transition-colors sm:flex-none sm:px-6 ${
+            view === "trash" ? "bg-white text-navy shadow-sm" : "text-navy-soft hover:text-navy"
+          }`}
+        >
+          Trash
+        </button>
       </nav>
 
       {view === "workspace" && (
@@ -352,6 +363,12 @@ export default function PresidentPanel({
             setArrivedCount(0);
           }}
         />
+      )}
+
+      {view === "trash" && (
+        <div className="mt-5">
+          <TrashPanel />
+        </div>
       )}
 
       {view === "inbox" && (

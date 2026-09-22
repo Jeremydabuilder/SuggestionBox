@@ -48,6 +48,7 @@ export async function runDailyDigest(): Promise<DigestOutcome> {
     .select("id, title, category, created_at")
     .eq("is_read", false)
     .neq("status", "archived")
+    .is("trashed_at", null)
     .order("created_at", { ascending: false })
     .limit(25);
 

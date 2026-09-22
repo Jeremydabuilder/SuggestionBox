@@ -114,6 +114,11 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     assistantContent = "Opening Memory Manager.";
   } else if (execution.status === "ok" && execution.kind === "meeting_prep") {
     assistantContent = "Opening Meeting Prep.";
+  } else if (execution.status === "ok" && execution.kind === "trash") {
+    // Read-only "open the panel" only — see chat-tool-registry.ts. Nothing
+    // in this branch can name a suggestion, so there is nothing here that
+    // could move, restore, or delete one.
+    assistantContent = "Opening Trash. You'll still need to click Restore or Permanently delete yourself — I can't do either for you.";
   } else if (execution.status === "ok" && execution.kind === "meeting_history") {
     // Stage 10 UX fix: a plain read answers inline, in the chat itself —
     // the full MeetingHistory panel is still one click away ("Open full

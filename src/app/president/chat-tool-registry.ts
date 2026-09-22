@@ -98,6 +98,16 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     status: "implemented",
     description: "List or open saved meeting briefs.",
   },
+  trash: {
+    intent: "trash",
+    classification: "read_only",
+    groqSynthesisEligible: false,
+    maxRecords: 0,
+    authLevel: "president",
+    status: "implemented",
+    description:
+      "Open the Trash panel to review, restore, or permanently delete a suggestion. The agent can only open it — every move-to-Trash, restore, and permanent-deletion step still requires you to click the button yourself.",
+  },
   list_decisions: {
     intent: "list_decisions",
     classification: "read_only",
@@ -199,6 +209,7 @@ const HELP_MESSAGE = [
   "- Build a proposal from related suggestions",
   "- Draft an announcement or update (never sends it)",
   "- Manage what I'm allowed to remember between conversations",
+  "- Open Trash to review, restore, or permanently delete a suggestion (you always click the actual button yourself)",
   "",
   "Right now, most of these are still being wired up — ask, and I'll tell you honestly if a feature isn't available yet.",
 ].join("\n");
@@ -209,6 +220,7 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "memory_manager"; action: "list" | "search"; query?: string }
   | { status: "ok"; kind: "meeting_prep" }
   | { status: "ok"; kind: "meeting_history" }
+  | { status: "ok"; kind: "trash" }
   | { status: "ok"; kind: "list_decisions" }
   | { status: "ok"; kind: "list_actions" }
   | { status: "ok"; kind: "since_last_meeting"; meetingId: string | null }
@@ -264,6 +276,15 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
 
   if (decision.intent === "meeting_history" && entry.status === "implemented") {
     return { status: "ok", kind: "meeting_history" };
+  }
+
+  // Trash: opens the panel only, exactly like meeting_history/list_decisions
+  // /list_actions above — no suggestion id is ever accepted here, so there
+  // is nothing for this branch to move, restore, or delete even in
+  // principle. Every actual mutation happens only from TrashPanel.tsx /
+  // SuggestionDetail.tsx's own explicit, human-clicked buttons.
+  if (decision.intent === "trash" && entry.status === "implemented") {
+    return { status: "ok", kind: "trash" };
   }
 
   if (decision.intent === "list_decisions" && entry.status === "implemented") {

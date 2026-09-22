@@ -16,6 +16,7 @@ export const CHAT_INTENTS = [
   "since_last_meeting",
   "meeting_prep",
   "meeting_history",
+  "trash",
   "list_decisions",
   "list_actions",
   "proposal_builder",
@@ -93,6 +94,13 @@ export const intentArgSchemas = {
       filter: z.enum(["all", "archived"]).optional(),
     })
     .strict(),
+
+  // Read-only: the agent can only ever tell the caller to open the Trash
+  // panel, the same way meeting_history/list_decisions/list_actions do.
+  // It has no argument that could name a suggestion to move, restore, or
+  // delete — see chat-tool-registry.ts's executeRoute for why that's true
+  // for every step after this one too.
+  trash: z.object({}).strict(),
 
   list_decisions: z
     .object({
