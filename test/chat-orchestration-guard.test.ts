@@ -122,3 +122,10 @@ describe("Stage 8 — proposal_builder and draft_communication delegate to their
     assert.match(source, /structured = draft\.structured;/);
   });
 });
+
+describe("Stage 9 — meeting_cleanup just opens the recorder panel; no audio or transcript handling happens in this file", () => {
+  test("meeting_cleanup produces a fixed message and no structured card, no audio-handling import", () => {
+    assert.match(source, /"Opening the meeting recorder\."/);
+    assert.doesNotMatch(source, /transcribeAudio|reviewMeetingTranscript|meeting-transcription-actions|meeting-cleanup-actions/);
+  });
+});

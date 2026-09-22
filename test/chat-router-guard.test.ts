@@ -37,7 +37,7 @@ describe("registry safety boundary", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("as of Stage 8, 14 of the 17 intents are marked implemented — only suggestion_details, related_suggestions, and meeting_cleanup remain planned/not_connected", () => {
+  test("as of Stage 9, 15 of the 17 intents are marked implemented — only suggestion_details and related_suggestions remain planned (no durable cross-turn S### ref resolution yet)", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
     assert.deepEqual(
       new Set(implemented),
@@ -56,6 +56,7 @@ describe("registry safety boundary", () => {
         "general_workspace_question",
         "proposal_builder",
         "draft_communication",
+        "meeting_cleanup",
       ]),
     );
   });
@@ -156,6 +157,13 @@ describe("executeRoute — honest results, never a fake record", () => {
     }
   });
 
+  test("meeting_cleanup opens the recorder panel — no transcriptRef resolution happens in executeRoute", () => {
+    const decision: RouteDecision = { intent: "meeting_cleanup", args: parseIntentArgs("meeting_cleanup", { transcriptRef: "whatever" }), confidence: "high", needsClarification: false, source: "deterministic" };
+    const result = executeRoute(decision);
+    assert.equal(result.status, "ok");
+    if (result.status === "ok") assert.equal(result.kind, "meeting_cleanup");
+  });
+
   test("meeting_prep, meeting_history, list_decisions, and list_actions each return the panel-open kind matching their intent name, not a fabricated record", () => {
     const cases: Array<[typeof CHAT_INTENTS[number], "meeting_prep" | "meeting_history" | "list_decisions" | "list_actions"]> = [
       ["meeting_prep", "meeting_prep"],
@@ -254,11 +262,38 @@ describe("Stage 5 tool panels — chat opens the door, it never mutates anything
     assert.doesNotMatch(aiChatSource, /createDecision|updateDecision|deleteDecision|createActionItem|updateActionItem|setActionItemCompleted|deleteActionItem|saveMeetingBrief|updateMeetingBrief|archiveMeetingBrief|restoreMeetingBrief/);
   });
 
-  test("the four workspace panels it renders are the same pre-existing, already-tested components — not new ones", () => {
+  test("the workspace panels it renders are the same pre-existing, already-tested components — not new ones", () => {
     assert.match(aiChatSource, /import MeetingAgent from ".\/MeetingAgent"/);
     assert.match(aiChatSource, /import MeetingHistory from ".\/MeetingHistory"/);
     assert.match(aiChatSource, /import DecisionLog, \{ type PrefillDecision \} from ".\/DecisionLog"/);
     assert.match(aiChatSource, /import ActionItems, \{ type PrefillAction \} from ".\/ActionItems"/);
+    assert.match(aiChatSource, /import RecorderCleanupPanel from ".\/RecorderCleanupPanel"/);
+  });
+});
+
+describe("RecorderCleanupPanel.tsx — Stage 9's recorder never mutates workspace data itself", () => {
+  const recorderSource = read("src/components/president/RecorderCleanupPanel.tsx");
+
+  test("never imports a Supabase client or a service-role helper", () => {
+    assert.doesNotMatch(recorderSource, /createSupabaseServerClient|createSupabaseServiceClient/);
+  });
+
+  test("never calls a decision/action mutation directly — hands off via onAddDecision/onAddAction instead", () => {
+    assert.doesNotMatch(recorderSource, /createDecision|updateDecision|deleteDecision|createActionItem|updateActionItem|setActionItemCompleted|deleteActionItem/);
+    assert.match(recorderSource, /onAddDecision\(/);
+    assert.match(recorderSource, /onAddAction\(/);
+  });
+
+  test("never writes to localStorage, sessionStorage, or IndexedDB — audio and transcript state is React state only", () => {
+    assert.doesNotMatch(recorderSource, /localStorage|sessionStorage|indexedDB/i);
+  });
+
+  test("stops every media track it opens (no lingering microphone access)", () => {
+    assert.match(recorderSource, /getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+  });
+
+  test("discards the in-memory audio blob as soon as the transcription request completes, success or failure", () => {
+    assert.match(recorderSource, /setAudioBlob\(null\); \/\/ discard the in-memory blob/);
   });
 });
 

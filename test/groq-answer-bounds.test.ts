@@ -28,9 +28,11 @@ function installFetchMock(responses: Array<{ status: number; body: unknown }>) {
 }
 
 describe("generateAnswerCompletion — bounded request count", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.GROQ_API_KEY = "test-key-not-real";
     delete process.env.GROQ_MODEL;
+    const { _resetGroqModelCacheForTests } = await import("../src/lib/groq.ts");
+    _resetGroqModelCacheForTests();
   });
 
   afterEach(() => {
@@ -39,7 +41,7 @@ describe("generateAnswerCompletion — bounded request count", () => {
   });
 
   test("a successful first call makes exactly one completion request", async () => {
-    const { generateAnswerCompletion } = await import(`../src/lib/groq.ts?t=${Date.now()}-a1`);
+    const { generateAnswerCompletion } = await import("../src/lib/groq.ts");
     installFetchMock([{ status: 200, body: { choices: [{ message: { content: "The evidence supports this. [S001]" } }] } }]);
 
     const outcome = await generateAnswerCompletion("system", "user", {});
@@ -48,7 +50,7 @@ describe("generateAnswerCompletion — bounded request count", () => {
   });
 
   test("an incompatible primary model (400) triggers exactly one fallback request, never more", async () => {
-    const { generateAnswerCompletion } = await import(`../src/lib/groq.ts?t=${Date.now()}-a2`);
+    const { generateAnswerCompletion } = await import("../src/lib/groq.ts");
     installFetchMock([
       { status: 400, body: { error: "bad request" } },
       { status: 200, body: { choices: [{ message: { content: "Answer." } }] } },
@@ -60,7 +62,7 @@ describe("generateAnswerCompletion — bounded request count", () => {
   });
 
   test("both the primary and the single fallback being incompatible stops at 2 requests — no third model is tried", async () => {
-    const { generateAnswerCompletion } = await import(`../src/lib/groq.ts?t=${Date.now()}-a3`);
+    const { generateAnswerCompletion } = await import("../src/lib/groq.ts");
     installFetchMock([
       { status: 422, body: { error: "unprocessable" } },
       { status: 422, body: { error: "unprocessable" } },
@@ -75,7 +77,7 @@ describe("generateAnswerCompletion — bounded request count", () => {
   });
 
   test("a rate limit (429) on the FIRST request is never retried with a fallback model — exactly 1 request total", async () => {
-    const { generateAnswerCompletion } = await import(`../src/lib/groq.ts?t=${Date.now()}-a4`);
+    const { generateAnswerCompletion } = await import("../src/lib/groq.ts");
     installFetchMock([{ status: 429, body: { error: "rate limited" } }]);
 
     const outcome = await generateAnswerCompletion("system", "user", {});
@@ -87,7 +89,7 @@ describe("generateAnswerCompletion — bounded request count", () => {
   });
 
   test("ANSWER_MAX_REQUESTS is exactly 2, and no test above ever exceeds it", async () => {
-    const { ANSWER_MAX_REQUESTS } = await import(`../src/lib/groq.ts?t=${Date.now()}-a5`);
+    const { ANSWER_MAX_REQUESTS } = await import("../src/lib/groq.ts");
     assert.equal(ANSWER_MAX_REQUESTS, 2);
   });
 
@@ -97,7 +99,10 @@ describe("generateAnswerCompletion — bounded request count", () => {
       "utf8",
     );
     const start = groqSource.indexOf("async function askTextModel(");
-    const body = groqSource.slice(start, groqSource.indexOf("\nexport function meetingAgentError"));
+    const nextFn = groqSource.indexOf("\nexport function meetingAgentError");
+    const nextTranscribe = groqSource.indexOf("\nconst GROQ_TRANSCRIPTION_ENDPOINT");
+    const end = [nextFn, nextTranscribe].filter((i) => i !== -1).sort((a, b) => a - b)[0];
+    const body = groqSource.slice(start, end);
     assert.doesNotMatch(body, /response_format/);
   });
 });

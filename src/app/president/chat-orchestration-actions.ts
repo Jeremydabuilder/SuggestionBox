@@ -140,6 +140,8 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     const draft = await buildCommunicationDraft(session, execution.commKind, execution.topic);
     assistantContent = draft.content;
     structured = draft.structured;
+  } else if (execution.status === "ok" && execution.kind === "meeting_cleanup") {
+    assistantContent = "Opening the meeting recorder.";
   } else {
     assistantContent = execution.status === "not_available" ? execution.reason : "I couldn't process that just now.";
   }

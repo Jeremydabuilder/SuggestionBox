@@ -26,7 +26,20 @@ export function rankGroqModels(available: string[], override?: string) {
 
 let discoveredModels: Promise<string[]> | null = null;
 
-async function candidateModels() {
+/**
+ * Test-only. A dynamic `import("./groq.ts?t=...")` cache-busting query
+ * string does NOT create a fresh module instance under this project's
+ * test runner (tsx resolves it back to the same cached module) — this is
+ * the real reset. Any test that mocks a different /models response
+ * between cases must call this in beforeEach, or the previous case's
+ * discovered model list silently carries over.
+ */
+export function _resetGroqModelCacheForTests(): void {
+  discoveredModels = null;
+}
+
+/** The raw, unfiltered model id list Groq reports — cached once per process. Every caller filters it for its own purpose. */
+async function rawAvailableModels(): Promise<string[]> {
   if (!discoveredModels) {
     discoveredModels = fetch(GROQ_MODELS_ENDPOINT, {
       headers: { authorization: `Bearer ${serverEnv.groqApiKey}` },
@@ -39,9 +52,28 @@ async function candidateModels() {
       })
       .catch(() => []);
   }
-  const available = await discoveredModels;
+  return discoveredModels;
+}
+
+async function candidateModels() {
+  const available = await rawAvailableModels();
   const ranked = rankGroqModels(available, serverEnv.groqModel);
   return ranked.length > 0 ? ranked : rankGroqModels([], serverEnv.groqModel);
+}
+
+/**
+ * rankGroqModels deliberately excludes anything matching /whisper|audio|tts/
+ * (see its own regex) — those are audio models, not chat-completion
+ * models, and would break every text call above if ranked in. This is the
+ * one place that looks for a whisper-family id instead, for Stage 9's
+ * transcription path. Returns null (never a guess at a wrong model) if
+ * Groq reports no whisper model at all, so the caller can give an honest
+ * "transcription unavailable" answer instead of attempting a request that
+ * cannot succeed.
+ */
+async function candidateAudioModel(): Promise<string | null> {
+  const available = await rawAvailableModels();
+  return available.find((id) => /whisper/i.test(id)) ?? null;
 }
 
 async function askModel(model: string, records: AnonymousSuggestion[], scope: MeetingScope) {
@@ -306,6 +338,63 @@ async function askTextModel(
     const content = payload.choices?.[0]?.message?.content;
     if (!content) throw new Error("The model returned an empty response.");
     return content;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const GROQ_TRANSCRIPTION_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
+
+export type TranscriptionErrorCategory = ClassifierErrorCategory | "model_unavailable";
+export type TranscriptionOutcome =
+  | { ok: true; text: string; model: string }
+  | { ok: false; errorCategory: TranscriptionErrorCategory };
+
+/**
+ * Exactly one attempt, never a fallback loop — Whisper-family models are
+ * far more uniform across providers than chat models, so there is no
+ * "try a second candidate" case the way generateClassifierCompletion and
+ * generateAnswerCompletion have. If Groq reports no whisper model at all,
+ * this returns "model_unavailable" without ever making a request.
+ *
+ * Takes an in-memory Buffer, never a file path: nothing in this function
+ * writes to disk, so there is no temp file for a caller to clean up in
+ * the first place — the strongest version of "no audio persistence" is
+ * a code path that never persists anything to begin with.
+ */
+export async function transcribeAudioBuffer(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string,
+  timeoutMs = 30_000,
+): Promise<TranscriptionOutcome> {
+  const model = await candidateAudioModel();
+  if (!model) return { ok: false, errorCategory: "model_unavailable" };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(buffer)], { type: mimeType }), filename);
+    form.append("model", model);
+    form.append("response_format", "text");
+
+    const response = await fetch(GROQ_TRANSCRIPTION_ENDPOINT, {
+      method: "POST",
+      headers: { authorization: `Bearer ${serverEnv.groqApiKey}` },
+      body: form,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new GroqRequestError(`Groq returned HTTP ${response.status}.`, response.status);
+    }
+
+    const text = await response.text();
+    if (!text.trim()) throw new Error("The model returned an empty transcript.");
+    return { ok: true, text: text.trim(), model };
+  } catch (error) {
+    return { ok: false, errorCategory: classifierErrorCategory(error) };
   } finally {
     clearTimeout(timer);
   }

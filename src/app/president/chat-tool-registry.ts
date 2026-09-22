@@ -154,12 +154,12 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
   },
   meeting_cleanup: {
     intent: "meeting_cleanup",
-    classification: "confirmation_required",
+    classification: "draft",
     groqSynthesisEligible: true,
     maxRecords: 1,
     authLevel: "president",
-    status: "not_connected",
-    description: "Organize an approved transcript into review categories.",
+    status: "implemented",
+    description: "Record, upload, or paste a transcript and organize it into review categories.",
   },
   memory_manager: {
     intent: "memory_manager",
@@ -218,6 +218,7 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "general_workspace_question"; query: string }
   | { status: "ok"; kind: "proposal_builder"; topic: string }
   | { status: "ok"; kind: "draft_communication"; commKind?: string; topic: string }
+  | { status: "ok"; kind: "meeting_cleanup" }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
 /**
@@ -304,6 +305,15 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "draft_communication" && entry.status === "implemented") {
     const args = decision.args as { kind?: string; topic?: string };
     return { status: "ok", kind: "draft_communication", commKind: args.kind, topic: args.topic ?? "" };
+  }
+
+  if (decision.intent === "meeting_cleanup" && entry.status === "implemented") {
+    // transcriptRef (if given) is not resolved here — a chat-typed message
+    // has no reliable way to name a transcript that only ever exists in
+    // the browser's own component state (see RecorderCleanupPanel.tsx's
+    // doc comment). This just opens that panel; an honest, documented
+    // limitation, not a silent no-op.
+    return { status: "ok", kind: "meeting_cleanup" };
   }
 
   return {
