@@ -19,6 +19,8 @@ import {
 } from "@/lib/types";
 import { matchCountFor, relatedGroupSize } from "@/lib/duplicates";
 import { rescanDuplicates } from "@/app/president/actions";
+import { getConversationSummaries } from "@/app/president/conversation-actions";
+import type { ConversationSummary } from "@/lib/types";
 import AIWorkspace from "./AIWorkspace";
 import TrashPanel from "./TrashPanel";
 import HelpPanel from "./HelpPanel";
@@ -50,6 +52,8 @@ export default function PresidentPanel({
   const [sort, setSort] = useState<SortOrder>("newest");
   const [showArchived, setShowArchived] = useState(false);
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
+  const [studentRepliedOnly, setStudentRepliedOnly] = useState(false);
+  const [conversationSummaries, setConversationSummaries] = useState<Record<string, ConversationSummary>>({});
   const [rescanning, setRescanning] = useState(false);
   const [rescanNote, setRescanNote] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -64,11 +68,26 @@ export default function PresidentPanel({
     startTransition(() => router.refresh());
   }, [router]);
 
+  const refreshConversations = useCallback(() => {
+    void getConversationSummaries().then((result) => {
+      if (result.ok) setConversationSummaries(result.data);
+    });
+  }, []);
+
+  useEffect(() => {
+    refreshConversations();
+  }, [refreshConversations]);
+
   /* ---- live updates: both co-presidents stay in sync ---------------- */
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     const channel = supabase
       .channel("president-panel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "suggestion_conversations" },
+        () => refreshConversations(),
+      )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "suggestions" },
@@ -106,7 +125,7 @@ export default function PresidentPanel({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [refresh, refreshConversations]);
 
   /* ---- polling fallback, in case realtime is unavailable ------------ */
   useEffect(() => {
@@ -183,6 +202,7 @@ export default function PresidentPanel({
       if (readFilter === "unread" && s.is_read) return false;
       if (readFilter === "read" && !s.is_read) return false;
       if (duplicatesOnly && !duplicateCounts.has(s.id)) return false;
+      if (studentRepliedOnly && !conversationSummaries[s.id]?.lastStudentMessageAt) return false;
       if (needle) {
         const haystack = [
           s.title,
@@ -203,7 +223,7 @@ export default function PresidentPanel({
       const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       return sort === "newest" ? -diff : diff;
     });
-  }, [suggestions, query, category, status, readFilter, sort, showArchived, duplicatesOnly, duplicateCounts]);
+  }, [suggestions, query, category, status, readFilter, sort, showArchived, duplicatesOnly, studentRepliedOnly, duplicateCounts, conversationSummaries]);
 
   const selected = useMemo(
     () => suggestions.find((s) => s.id === selectedId) ?? null,
@@ -222,7 +242,8 @@ export default function PresidentPanel({
     status !== "all" ||
     readFilter !== "all" ||
     showArchived ||
-    duplicatesOnly;
+    duplicatesOnly ||
+    studentRepliedOnly;
 
   function clearFilters() {
     setQuery("");
@@ -231,6 +252,7 @@ export default function PresidentPanel({
     setReadFilter("all");
     setShowArchived(false);
     setDuplicatesOnly(false);
+    setStudentRepliedOnly(false);
   }
 
   function showAll() {
@@ -244,6 +266,7 @@ export default function PresidentPanel({
     setReadFilter("unread");
     setShowArchived(false);
     setDuplicatesOnly(false);
+    setStudentRepliedOnly(false);
   }
 
   function showStatus(next: Status) {
@@ -253,6 +276,7 @@ export default function PresidentPanel({
     setReadFilter("all");
     setShowArchived(next === "archived");
     setDuplicatesOnly(false);
+    setStudentRepliedOnly(false);
   }
 
   function showDuplicates() {
@@ -262,6 +286,7 @@ export default function PresidentPanel({
     setReadFilter("all");
     setShowArchived(false);
     setDuplicatesOnly(true);
+    setStudentRepliedOnly(false);
   }
 
   async function runRescan() {
@@ -542,6 +567,15 @@ export default function PresidentPanel({
             />
             <span>Possible duplicates ({stats.withDuplicates})</span>
           </label>
+          <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] font-medium text-navy">
+            <input
+              type="checkbox"
+              checked={studentRepliedOnly}
+              onChange={(e) => setStudentRepliedOnly(e.target.checked)}
+              className="h-4 w-4 accent-[#e24e1b]"
+            />
+            <span>Student replied</span>
+          </label>
           <span className="text-[13px] text-navy-soft">
             Showing {visible.length} of {stats.total}
           </span>
@@ -602,6 +636,7 @@ export default function PresidentPanel({
                     suggestion={suggestion}
                     duplicateCount={duplicateCounts.get(suggestion.id) ?? 0}
                     relatedCount={relatedGroupSize(suggestion, suggestions)}
+                    conversation={conversationSummaries[suggestion.id]}
                     active={suggestion.id === selectedId}
                     onOpen={() => {
                       setSelectedId(suggestion.id);
@@ -721,12 +756,14 @@ function SuggestionCard({
   suggestion,
   duplicateCount,
   relatedCount,
+  conversation,
   active,
   onOpen,
 }: {
   suggestion: Suggestion;
   duplicateCount: number;
   relatedCount: number;
+  conversation?: ConversationSummary;
   active: boolean;
   onOpen: () => void;
 }) {
@@ -771,6 +808,16 @@ function SuggestionCard({
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900">
                 Possible duplicate
                 <span className="tabular-nums">({duplicateCount})</span>
+              </span>
+            )}
+            {conversation?.lastStudentMessageAt && (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-semibold ${
+                  conversation.unread ? "border-sky-300 bg-sky-50 text-sky-900" : "border-rule bg-paper text-navy-soft"
+                }`}
+              >
+                {conversation.unread && <span className="h-[6px] w-[6px] rounded-full bg-sky-500" aria-label="Unread reply" />}
+                Student replied
               </span>
             )}
             {suggestion.primary_suggestion_id && (

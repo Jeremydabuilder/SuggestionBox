@@ -196,6 +196,7 @@ function DeletionFlow({
               <li>{stage.preview?.historyCount ?? 0} status history entr{stage.preview?.historyCount === 1 ? "y" : "ies"}</li>
               <li>{stage.preview?.matchCount ?? 0} duplicate relationship{stage.preview?.matchCount === 1 ? "" : "s"}</li>
               <li>{stage.preview?.citationCount ?? 0} meeting citation{stage.preview?.citationCount === 1 ? "" : "s"}</li>
+              <li>{stage.preview?.messageCount ?? 0} conversation message{stage.preview?.messageCount === 1 ? "" : "s"}</li>
             </ul>
             <p className="mt-2 text-[12.5px] text-navy-soft">This cannot be undone.</p>
 

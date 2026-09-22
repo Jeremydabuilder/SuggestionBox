@@ -30,6 +30,7 @@ export interface DeletionDependencyPreview {
   historyCount: number;
   matchCount: number;
   citationCount: number;
+  messageCount: number;
 }
 
 export async function listTrash(): Promise<ActionResult<TrashedSuggestion[]>> {
@@ -93,7 +94,7 @@ export async function getDeletionDependencyPreview(rawId: unknown): Promise<Acti
   if (!UUID_RE.test(id)) return fail("That suggestion could not be found.");
 
   const supabase = await createSupabaseServerClient();
-  const [notes, history, matchesAsSubject, matchesAsMatch, briefCitations, decisionCitations, actionCitations] = await Promise.all([
+  const [notes, history, matchesAsSubject, matchesAsMatch, briefCitations, decisionCitations, actionCitations, messageCountRes] = await Promise.all([
     supabase.from("internal_notes").select("id", { count: "exact", head: true }).eq("suggestion_id", id),
     supabase.from("status_history").select("id", { count: "exact", head: true }).eq("suggestion_id", id),
     supabase.from("suggestion_matches").select("id", { count: "exact", head: true }).eq("suggestion_id", id),
@@ -101,9 +102,12 @@ export async function getDeletionDependencyPreview(rawId: unknown): Promise<Acti
     supabase.from("meeting_brief_citations").select("brief_id", { count: "exact", head: true }).eq("suggestion_id", id),
     supabase.from("meeting_decision_citations").select("decision_id", { count: "exact", head: true }).eq("suggestion_id", id),
     supabase.from("meeting_action_citations").select("action_id", { count: "exact", head: true }).eq("suggestion_id", id),
+    // suggestion_messages has no SELECT grant at all (see the migration's
+    // own doc comment) — its count can only come from this function.
+    supabase.rpc("count_conversation_messages", { p_suggestion_id: id }),
   ]);
 
-  const results = [notes, history, matchesAsSubject, matchesAsMatch, briefCitations, decisionCitations, actionCitations];
+  const results = [notes, history, matchesAsSubject, matchesAsMatch, briefCitations, decisionCitations, actionCitations, messageCountRes];
   if (results.some((r) => r.error)) return fail("Those details could not be checked. Try again in a moment.");
 
   return {
@@ -113,6 +117,7 @@ export async function getDeletionDependencyPreview(rawId: unknown): Promise<Acti
       historyCount: history.count ?? 0,
       matchCount: (matchesAsSubject.count ?? 0) + (matchesAsMatch.count ?? 0),
       citationCount: (briefCitations.count ?? 0) + (decisionCitations.count ?? 0) + (actionCitations.count ?? 0),
+      messageCount: (messageCountRes.data as number | null) ?? 0,
     },
   };
 }

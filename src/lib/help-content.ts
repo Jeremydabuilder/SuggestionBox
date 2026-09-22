@@ -89,6 +89,17 @@ export const STUDENT_HELP_TOPICS: HelpTopic[] = [
       "This box is for ideas and suggestions — not for reporting something urgent or someone's safety. If you or someone else is in danger, or you need to report bullying, harassment, or a safety concern, go through your school's normal channels: talk to a teacher, counselor, or administrator directly, or use whatever safety-reporting system your school already has. This box is read when a co-president gets to it, not monitored in real time.",
     ],
   },
+  {
+    id: "conversations",
+    audience: "student",
+    question: "Can I talk with the co-presidents about my idea?",
+    answer: [
+      "If you signed in and sent your idea with your name, you can open it on My Ideas and send a private message about it — a real back-and-forth with the co-presidents, just about that one suggestion. Only they can read it; not other students, not anyone else.",
+      "You'll see whether a reply came from \"Co-Presidents\" — never which individual co-president wrote it. Messages are plain text only: no files, images, links, or formatting, and once sent a message can't be edited or deleted by anyone.",
+      "Use this conversation only to clarify your suggestion. For urgent safety concerns, contact a trusted adult or the school directly — this isn't monitored in real time.",
+    ],
+    keywords: ["conversation", "message", "chat", "reply"],
+  },
 ];
 
 export const PRESIDENT_HELP_TOPICS: HelpTopic[] = [
@@ -231,6 +242,17 @@ export const PRESIDENT_HELP_TOPICS: HelpTopic[] = [
       "It never sees a student's name or email — those are stripped before anything is sent to it. It can't send a message, change a suggestion's status, save anything without your confirmation, or act during a multi-step plan on anything that needs one. It doesn't rank, score, or infer anything about a specific student.",
     ],
     keywords: ["privacy", "student data", "what can't the ai do"],
+  },
+  {
+    id: "student-conversation",
+    audience: "president",
+    question: "How does the Student Conversation section work?",
+    answer: [
+      "A signed-in student who submitted with their name gets a private, one-suggestion conversation with \"the Co-Presidents\" — never a specific one — visible inside that suggestion's detail panel. You can read the full thread (with real authorship shown to you, for coordination between the two of you), reply, mark it resolved, and reopen it later. If the student replies after you've marked it resolved, it reopens automatically so it doesn't get missed.",
+      "Moving a suggestion to Trash makes its conversation read-only for everyone until it's restored; permanently deleting the suggestion permanently deletes its messages too, and the deletion preview tells you how many there are first.",
+      "The composer has AI buttons — Draft reply, Make warmer, Make shorter, Ask a clarifying question, Summarize thread, Identify unanswered questions — each clearly labeled as a draft. None of them send anything; you always review and click Send yourself.",
+    ],
+    keywords: ["conversation", "student conversation", "reply", "resolved", "reopen"],
   },
 ];
 

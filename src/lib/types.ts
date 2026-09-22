@@ -137,3 +137,32 @@ export interface StatusHistoryEntry {
   changed_by: string | null;
   created_at: string;
 }
+
+export type ConversationState = "open" | "resolved";
+
+/** A message as a student is allowed to see it — never a sender email or user id. */
+export interface StudentConversationMessage {
+  id: string;
+  senderRole: "student" | "president";
+  body: string;
+  createdAt: string;
+}
+
+/** A message as a president is allowed to see it — full verified authorship, for internal audit. */
+export interface PresidentConversationMessage {
+  id: string;
+  senderRole: "student" | "president";
+  senderEmail: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface ConversationSummary {
+  suggestionId: string;
+  state: ConversationState;
+  hasConversation: boolean;
+  lastStudentMessageAt: string | null;
+  lastPresidentMessageAt: string | null;
+  /** True when there's at least one message the caller (this student, or this signed-in president) hasn't read yet. */
+  unread: boolean;
+}

@@ -33,6 +33,7 @@ import {
   setStatus,
 } from "@/app/president/actions";
 import { moveToTrash } from "@/app/president/trash-actions";
+import ConversationPanel from "./ConversationPanel";
 import {
   ArchiveIcon,
   CloseIcon,
@@ -362,6 +363,15 @@ export default function SuggestionDetail({
             </div>
           )}
         </section>
+
+        {/* private conversation with the submitting student, if signed in */}
+        {suggestion.submitter_user_id && (
+          <ConversationPanel
+            suggestionId={suggestion.id}
+            studentName={suggestion.student_name}
+            studentEmail={suggestion.student_email}
+          />
+        )}
 
         {/* possible duplicates */}
         <SimilarSuggestions
