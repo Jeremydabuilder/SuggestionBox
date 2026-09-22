@@ -17,6 +17,9 @@ describe("every suggested starter prompt routes deterministically", () => {
     ["Help", "help"],
     ["What's trending?", "trend_radar"],
     ["Check for missing follow-ups", "promise_tracker"],
+    ["What needs our attention?", "since_last_meeting"],
+    ["Review unfinished actions", "list_actions"],
+    ["Build a proposal from student ideas", "proposal_builder"],
   ];
 
   for (const [prompt, expectedIntent] of cases) {

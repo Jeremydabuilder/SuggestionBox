@@ -200,6 +200,44 @@ export const actionsSummaryStructuredSchema = z.object({
 });
 export type ActionsSummaryStructured = z.infer<typeof actionsSummaryStructuredSchema>;
 
+/**
+ * Co-President Agent: a completed (or partially completed) multi-step
+ * plan. `plan` and `evidence` are always the REAL steps that ran, in the
+ * order they ran, each with its actual status — never a fabricated
+ * "success" for a step that failed or was skipped. `synthesizedAnswer`
+ * and `citations` are null/empty whenever no synthesis call was needed
+ * or its citations failed the allowlist check (agent-orchestrator.ts
+ * never lets a partially-trusted synthesis through). `suggestedNextAction`
+ * is always a fixed, deterministically-chosen string — see
+ * lib/agent-next-action.ts — never something the model wrote.
+ */
+const agentPlanStepStructuredSchema = z.object({
+  step: z.number().int().min(1),
+  intent: z.string(),
+  label: z.string().max(80),
+  status: z.enum(["done", "failed", "skipped"]),
+});
+
+const agentEvidenceItemStructuredSchema = z.object({
+  intent: z.string(),
+  label: z.string().max(80),
+  status: z.enum(["done", "failed", "skipped"]),
+  summary: z.string().max(600),
+  citationRefs: z.array(suggestionRefSchema).max(10),
+});
+
+export const agentTurnStructuredSchema = z.object({
+  type: z.literal("agent_turn"),
+  planSource: z.enum(["template", "ai"]),
+  plan: z.array(agentPlanStepStructuredSchema).max(4),
+  evidence: z.array(agentEvidenceItemStructuredSchema).max(4),
+  synthesizedAnswer: z.string().max(1000).nullable(),
+  citations: z.array(z.object({ ref: suggestionRefSchema, title: z.string().max(300) })).max(10),
+  suggestedNextAction: z.string().max(200).nullable(),
+  openPanel: z.enum(["meeting_prep"]).nullable(),
+});
+export type AgentTurnStructured = z.infer<typeof agentTurnStructuredSchema>;
+
 export const assistantStructuredSchema = z.discriminatedUnion("type", [
   memoryProposalStructuredSchema,
   statusStructuredSchema,
@@ -213,6 +251,7 @@ export const assistantStructuredSchema = z.discriminatedUnion("type", [
   meetingHistorySummaryStructuredSchema,
   decisionsSummaryStructuredSchema,
   actionsSummaryStructuredSchema,
+  agentTurnStructuredSchema,
 ]);
 export type AssistantStructured = z.infer<typeof assistantStructuredSchema>;
 

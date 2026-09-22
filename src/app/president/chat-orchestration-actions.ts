@@ -14,8 +14,28 @@ import { buildCommunicationDraft } from "./chat-communication-draft";
 import { listMeetingBriefs } from "./workspace-actions";
 import { listDecisions } from "./decisions-actions";
 import { listActionItems } from "./action-items-actions";
+import { runAgentTurn, type AgentTurnResult } from "./agent-orchestrator";
 import type { ActionResult } from "./actions";
 import type { AssistantStructured, ChatMessage } from "@/lib/chat-store";
+
+/**
+ * Turns a completed agent turn into the plain-text reply shown above its
+ * structured card — the card carries the full detail; this is just a
+ * short, honest summary of what actually happened (never a claim about
+ * a step that failed or was skipped).
+ */
+function formatAgentTurnContent(result: AgentTurnResult): string {
+  const lines: string[] = [];
+  lines.push(result.synthesizedAnswer ?? "Here's what I found:");
+  for (const item of result.evidence) {
+    if (item.status === "done") lines.push(`• ${item.summary}`);
+  }
+  if (result.evidence.some((e) => e.status === "failed")) {
+    lines.push("(One step couldn't complete — see the plan above for details.)");
+  }
+  if (result.suggestedNextAction) lines.push(`Next: ${result.suggestedNextAction}`);
+  return lines.join("\n");
+}
 
 function fail(error: string): { ok: false; error: string } {
   return { ok: false, error };
@@ -56,10 +76,36 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
   const priorMessages = historyResult.ok ? historyResult.data.messages.slice(0, -1) : [];
   const recentContext = priorMessages.slice(-RECENT_CONTEXT_MESSAGES).map((m) => m.content);
 
-  const { decision, execution } = await routeChatMessage(session, userResult.data.content, recentContext);
+  // Multi-step agent turn, tried first: a deterministic plan template, or
+  // (only for a message that looks like a compound goal and that the
+  // existing deterministic single-tool router doesn't already confidently
+  // handle) one bounded AI planning call. Returns null for the overwhelming
+  // majority of ordinary messages, which then fall through to the
+  // completely unmodified single-intent path below — see
+  // agent-orchestrator.ts's own doc comment for the exact precedence.
+  const agentTurn = await runAgentTurn(session, userResult.data.content);
 
   let assistantContent: string;
   let structured: AssistantStructured | null = null;
+  let routedIntent = "agent_turn";
+  let toolStatus: "ok" | "not_available" = "ok";
+
+  if (agentTurn) {
+    assistantContent = formatAgentTurnContent(agentTurn);
+    structured = {
+      type: "agent_turn",
+      planSource: agentTurn.planSource,
+      plan: agentTurn.plan,
+      evidence: agentTurn.evidence,
+      synthesizedAnswer: agentTurn.synthesizedAnswer,
+      citations: agentTurn.citations,
+      suggestedNextAction: agentTurn.suggestedNextAction,
+      openPanel: agentTurn.openPanel,
+    };
+  } else {
+  const { decision, execution } = await routeChatMessage(session, userResult.data.content, recentContext);
+  routedIntent = decision.intent;
+
   if (execution.status === "ok" && execution.kind === "help") {
     assistantContent = execution.message;
   } else if (execution.status === "ok" && execution.kind === "clarification") {
@@ -185,6 +231,8 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
   } else {
     assistantContent = execution.status === "not_available" ? execution.reason : "I couldn't process that just now.";
   }
+  toolStatus = execution.status;
+  }
 
   let assistantMessageId: string;
   try {
@@ -208,8 +256,8 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     data: {
       userMessage: userResult.data,
       assistantMessage,
-      intent: decision.intent,
-      toolStatus: execution.status,
+      intent: routedIntent,
+      toolStatus,
     },
   };
 }

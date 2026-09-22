@@ -10,9 +10,14 @@ import {
   listMessages,
 } from "@/app/president/chat-actions";
 import { sendChatMessage } from "@/app/president/chat-orchestration-actions";
+import { listMemories } from "@/app/president/chat-memory-actions";
+import { getAgentHomeBriefing } from "@/app/president/agent-home-actions";
 import type { AssistantStructured, ChatConversation, ChatMessage } from "@/lib/chat-store";
 import type { Suggestion } from "@/lib/types";
+import { AGENT_DEFAULT_NAME, AGENT_DESCRIPTION, resolveAgentName } from "@/lib/agent-identity";
+import type { AgentHomeBriefing } from "@/lib/agent-home-briefing";
 import MemoryManagerPanel from "./MemoryManagerPanel";
+import AgentSettingsPanel from "./AgentSettingsPanel";
 import MeetingAgent from "./MeetingAgent";
 import MeetingHistory from "./MeetingHistory";
 import DecisionLog, { type PrefillDecision } from "./DecisionLog";
@@ -23,17 +28,12 @@ type ToolPanel = "meeting_prep" | "meeting_history" | "decisions" | "actions" | 
 
 const STARTER_PROMPTS = [
   "Prepare our next meeting",
+  "What needs our attention?",
   "What changed since our last meeting?",
-  "What needs attention?",
-  "Show open action items",
-  "Search student suggestions",
-  "What's trending?",
-  "Check for missing follow-ups",
-  "Build a proposal",
+  "Build a proposal from student ideas",
+  "Find the biggest student concern",
   "Draft an assembly update",
-  "Review meeting history",
-  "Manage memory",
-  "Help",
+  "Review unfinished actions",
 ];
 
 /**
@@ -89,11 +89,35 @@ export default function AIChat({
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
   const [toolPanel, setToolPanel] = useState<ToolPanel>(null);
   const [decisionPrefill, setDecisionPrefill] = useState<PrefillDecision | null>(null);
   const [actionPrefill, setActionPrefill] = useState<PrefillAction | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Both co-presidents see the same name because it's read from the shared
+  // chat_memories table (see lib/agent-identity.ts) — nothing here writes
+  // it; a rename only ever happens through Agent Settings' existing
+  // propose/confirm flow.
+  const [agentName, setAgentName] = useState(AGENT_DEFAULT_NAME);
+  const [homeBriefing, setHomeBriefing] = useState<AgentHomeBriefing | null>(null);
+  const [homeBriefingError, setHomeBriefingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void listMemories().then((result) => {
+      if (result.ok) setAgentName(resolveAgentName(result.data));
+    });
+  }, []);
+
+  useEffect(() => {
+    // Zero Groq calls — a handful of count queries, fetched once when the
+    // workspace opens, never on an interval and never in the background.
+    void getAgentHomeBriefing().then((result) => {
+      if (result.ok) setHomeBriefing(result.data);
+      else setHomeBriefingError(result.error);
+    });
+  }, []);
 
   function addToDecisionLog(prefill: PrefillDecision) {
     setDecisionPrefill(prefill);
@@ -276,12 +300,9 @@ export default function AIChat({
                   Ready
                 </span>
               </div>
-              <h2 className="mt-1 text-xl font-bold text-navy">AI Co-President</h2>
-              <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-navy-soft">
-                Prepares meetings, tracks decisions and follow-ups, searches the inbox, and drafts
-                proposals and updates — every answer cites real suggestions, and nothing saves
-                without your review.
-              </p>
+              <h2 className="mt-1 text-xl font-bold text-navy">{agentName}</h2>
+              <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-navy-soft">{AGENT_DESCRIPTION}</p>
+              <p className="mt-0.5 text-[11px] text-navy-soft/80">An AI assistant, not a human president. Nothing saves without your review.</p>
             </div>
           </div>
           <button
@@ -314,6 +335,13 @@ export default function AIChat({
             className="btn-quiet bg-white/70 py-1.5 text-[12.5px]"
           >
             Memory manager
+          </button>
+          <button
+            type="button"
+            onClick={() => void ensureConversation().then((id) => id && setAgentSettingsOpen(true))}
+            className="btn-quiet bg-white/70 py-1.5 text-[12.5px]"
+          >
+            Agent settings
           </button>
         </div>
       </div>
@@ -439,10 +467,12 @@ export default function AIChat({
                 <div className="grid h-14 w-14 place-items-center rounded-2xl bg-violet-700 text-2xl text-white shadow-sm" aria-hidden>
                   ✦
                 </div>
-                <p className="mt-3 font-display text-lg font-semibold text-navy">Ask your AI Co-President</p>
+                <p className="mt-3 font-display text-lg font-semibold text-navy">Ask {agentName}</p>
                 <p className="mt-1.5 max-w-sm text-[13px] text-navy-soft">
                   Try a starter below, or ask anything about the inbox, meetings, decisions, and action items.
                 </p>
+                {homeBriefing && <HomeBriefingCard briefing={homeBriefing} />}
+                {homeBriefingError && <p role="alert" className="mt-3 text-[12px] font-medium text-rose-800">{homeBriefingError}</p>}
                 <div className="mt-5 grid w-full max-w-md grid-cols-1 gap-1.5 sm:grid-cols-2">
                   {STARTER_PROMPTS.map((prompt) => (
                     <button
@@ -461,7 +491,7 @@ export default function AIChat({
               <ul className="space-y-3">
                 {messages.map((message) => (
                   <li key={message.id} className={`flex items-end gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                    {message.role === "assistant" && <AssistantAvatar />}
+                    {message.role === "assistant" && <AssistantAvatar label={agentName} />}
                     <div
                       className={`group rounded-[14px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
                         message.structured ? "max-w-[92%]" : "max-w-[82%]"
@@ -483,12 +513,12 @@ export default function AIChat({
                 ))}
                 {sending && (
                   <li className="flex items-end justify-start gap-2">
-                    <AssistantAvatar pulse />
+                    <AssistantAvatar pulse label={agentName} />
                     <div className="flex items-center gap-1.5 rounded-[14px] border border-rule bg-paper px-3.5 py-3 text-[13px] text-navy-soft">
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:-0.3s]" aria-hidden />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 [animation-delay:-0.15s]" aria-hidden />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500" aria-hidden />
-                      <span className="sr-only">Thinking…</span>
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 motion-reduce:animate-none [animation-delay:-0.3s]" aria-hidden />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 motion-reduce:animate-none [animation-delay:-0.15s]" aria-hidden />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-500 motion-reduce:animate-none" aria-hidden />
+                      <span className="sr-only">{agentName} is thinking…</span>
                     </div>
                   </li>
                 )}
@@ -544,6 +574,22 @@ export default function AIChat({
 
       {memoryManagerOpen && selectedId && (
         <MemoryManagerPanel conversationId={selectedId} onClose={() => setMemoryManagerOpen(false)} />
+      )}
+
+      {agentSettingsOpen && selectedId && (
+        <AgentSettingsPanel
+          conversationId={selectedId}
+          onClose={() => {
+            setAgentSettingsOpen(false);
+            void listMemories().then((result) => {
+              if (result.ok) setAgentName(resolveAgentName(result.data));
+            });
+          }}
+          onOpenMemoryManager={() => {
+            setAgentSettingsOpen(false);
+            setMemoryManagerOpen(true);
+          }}
+        />
       )}
 
       {toolPanel && (
@@ -618,9 +664,49 @@ function StructuredCard({ structured, onOpenPanel }: { structured: AssistantStru
       return <DecisionsSummaryCard summary={structured} onOpenPanel={onOpenPanel} />;
     case "actions_summary":
       return <ActionsSummaryCard summary={structured} onOpenPanel={onOpenPanel} />;
+    case "agent_turn":
+      return <AgentTurnCard turn={structured} onOpenPanel={onOpenPanel} />;
     default:
       return null;
   }
+}
+
+const AGENT_STEP_STATUS_LABEL: Record<string, string> = { done: "Done", failed: "Couldn't complete", skipped: "Skipped" };
+
+function AgentTurnCard({
+  turn,
+  onOpenPanel,
+}: {
+  turn: Extract<AssistantStructured, { type: "agent_turn" }>;
+  onOpenPanel: (panel: Exclude<ToolPanel, null>) => void;
+}) {
+  return (
+    <div className="mt-2.5 space-y-3 rounded-[10px] border border-rule bg-white/70 p-3">
+      <div>
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-navy-soft">Plan</p>
+        <ol className="space-y-1 text-[12.5px] text-navy">
+          {turn.plan.map((step) => (
+            <li key={step.step} className="flex items-center justify-between gap-2">
+              <span className="truncate">{step.step}. {step.label}</span>
+              <span
+                className={`shrink-0 text-[11px] font-semibold ${
+                  step.status === "done" ? "text-emerald-700" : step.status === "failed" ? "text-rose-700" : "text-navy-soft"
+                }`}
+              >
+                {AGENT_STEP_STATUS_LABEL[step.status]}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      {turn.citations.length > 0 && <CitationListCard label="Sources" citations={turn.citations} />}
+
+      {turn.openPanel === "meeting_prep" && (
+        <OpenFullViewButton onClick={() => onOpenPanel("meeting_prep")} label="Open Meeting Prep" />
+      )}
+    </div>
+  );
 }
 
 function OpenFullViewButton({ onClick, label }: { onClick: () => void; label: string }) {
@@ -769,13 +855,47 @@ function PromiseTrackerCard({ report }: { report: Extract<AssistantStructured, {
   );
 }
 
-function AssistantAvatar({ pulse = false }: { pulse?: boolean }) {
+function AssistantAvatar({ pulse = false, label }: { pulse?: boolean; label: string }) {
   return (
     <div
-      aria-hidden
-      className={`grid h-7 w-7 shrink-0 place-items-center rounded-full bg-violet-700 text-[13px] text-white shadow-sm ${pulse ? "animate-pulse" : ""}`}
+      role="img"
+      aria-label={label}
+      className={`grid h-7 w-7 shrink-0 place-items-center rounded-full bg-violet-700 text-[13px] text-white shadow-sm ${pulse ? "motion-safe:animate-pulse" : ""}`}
     >
-      ✦
+      <span aria-hidden>✦</span>
+    </div>
+  );
+}
+
+/**
+ * The deterministic home briefing (Section 5 of the agent upgrade): zero
+ * Groq calls, fetched once via getAgentHomeBriefing — six plain counts
+ * read directly from the database, nothing computed or guessed by a
+ * model.
+ */
+function HomeBriefingCard({ briefing }: { briefing: AgentHomeBriefing }) {
+  const stats: Array<[string, number]> = [
+    ["Unread", briefing.unreadCount],
+    ["Duplicate review", briefing.duplicateReviewCount],
+    ["Open actions", briefing.openActionCount],
+    ["Overdue actions", briefing.overdueActionCount],
+    ["Awaiting review 7+ days", briefing.staleSuggestionCount],
+  ];
+  return (
+    <div className="mt-4 w-full max-w-md rounded-[12px] border border-rule bg-paper-deep/40 p-3.5 text-left">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {stats.map(([label, count]) => (
+          <div key={label} className="rounded-lg border border-rule bg-paper px-2.5 py-2 text-center">
+            <p className="text-[16px] font-bold text-navy">{count}</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-navy-soft">{label}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2.5 text-[11.5px] text-navy-soft">
+        {briefing.mostRecentMeeting
+          ? `Last saved meeting: ${briefing.mostRecentMeeting.headline} (${new Date(briefing.mostRecentMeeting.createdAt).toLocaleDateString()})`
+          : "No saved meetings yet."}
+      </p>
     </div>
   );
 }

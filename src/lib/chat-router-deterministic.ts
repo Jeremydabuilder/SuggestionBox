@@ -32,11 +32,12 @@ function findEnumValue<T extends string>(text: string, values: readonly T[]): T 
 const STARTER_PROMPTS: Array<{ match: RegExp; build: () => RouteDecision }> = [
   { match: /^prepare (our )?next meeting$/i, build: () => decision("meeting_prep", {}) },
   { match: /^what('?s| has| changed) changed since (our )?last meeting\??$/i, build: () => decision("since_last_meeting", {}) },
-  { match: /^what needs attention\??$/i, build: () => decision("since_last_meeting", {}) },
+  { match: /^what needs (our )?attention\??$/i, build: () => decision("since_last_meeting", {}) },
   { match: /^show open action items$/i, build: () => decision("list_actions", { status: "open" }) },
+  { match: /^review unfinished actions$/i, build: () => decision("list_actions", { status: "open" }) },
   { match: /^show (recent )?decisions$/i, build: () => decision("list_decisions", {}) },
   { match: /^search (student )?suggestions$/i, build: () => clarify("What would you like to search the inbox for?") },
-  { match: /^build a proposal$/i, build: () => decision("proposal_builder", {}) },
+  { match: /^build a proposal( from student ideas)?$/i, build: () => decision("proposal_builder", {}) },
   { match: /^draft an assembly update$/i, build: () => decision("draft_communication", { kind: "assembly_announcement" }) },
   { match: /^review meeting history$/i, build: () => decision("meeting_history", {}) },
   { match: /^show meeting history$/i, build: () => decision("meeting_history", {}) },
@@ -62,7 +63,7 @@ const RULES: Rule[] = [
     build: () => decision("since_last_meeting", {}),
   },
   {
-    match: /\b(what needs attention|needs attention)\b/i,
+    match: /\b(what needs (our )?attention|needs attention)\b/i,
     build: () => decision("since_last_meeting", {}),
   },
   // Action items
