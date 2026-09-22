@@ -47,10 +47,10 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
   search_inbox: {
     intent: "search_inbox",
     classification: "read_only",
-    groqSynthesisEligible: true,
-    maxRecords: 50,
+    groqSynthesisEligible: false,
+    maxRecords: 15,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Search and filter suggestions by text, category, or status.",
   },
   suggestion_details: {
@@ -128,19 +128,19 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
   trend_radar: {
     intent: "trend_radar",
     classification: "read_only",
-    groqSynthesisEligible: true,
-    maxRecords: 200,
+    groqSynthesisEligible: false,
+    maxRecords: 1000,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Surface sustained or rapidly increasing themes, with counts.",
   },
   promise_tracker: {
     intent: "promise_tracker",
     classification: "read_only",
-    groqSynthesisEligible: true,
-    maxRecords: 100,
+    groqSynthesisEligible: false,
+    maxRecords: 500,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Connect decisions to their follow-up actions and flag gaps.",
   },
   draft_communication: {
@@ -174,9 +174,9 @@ export const CHAT_TOOL_REGISTRY: Record<ChatIntent, ToolRegistryEntry> = {
     intent: "general_workspace_question",
     classification: "read_only",
     groqSynthesisEligible: true,
-    maxRecords: 0,
+    maxRecords: 8,
     authLevel: "president",
-    status: "planned",
+    status: "implemented",
     description: "Answer a workspace question that doesn't fit a specific tool.",
   },
   clarification_needed: {
@@ -212,6 +212,10 @@ export type ToolExecutionResult =
   | { status: "ok"; kind: "list_decisions" }
   | { status: "ok"; kind: "list_actions" }
   | { status: "ok"; kind: "since_last_meeting"; meetingId: string | null }
+  | { status: "ok"; kind: "search_inbox"; query?: string; category?: string; status_filter?: string }
+  | { status: "ok"; kind: "trend_radar" }
+  | { status: "ok"; kind: "promise_tracker" }
+  | { status: "ok"; kind: "general_workspace_question"; query: string }
   | { status: "not_available"; intent: ChatIntent; reason: string };
 
 /**
@@ -270,6 +274,24 @@ export function executeRoute(decision: RouteDecision): ToolExecutionResult {
   if (decision.intent === "since_last_meeting" && entry.status === "implemented") {
     const args = decision.args as { meetingId?: string };
     return { status: "ok", kind: "since_last_meeting", meetingId: args.meetingId ?? null };
+  }
+
+  if (decision.intent === "search_inbox" && entry.status === "implemented") {
+    const args = decision.args as { query?: string; category?: string; status?: string };
+    return { status: "ok", kind: "search_inbox", query: args.query, category: args.category, status_filter: args.status };
+  }
+
+  if (decision.intent === "trend_radar" && entry.status === "implemented") {
+    return { status: "ok", kind: "trend_radar" };
+  }
+
+  if (decision.intent === "promise_tracker" && entry.status === "implemented") {
+    return { status: "ok", kind: "promise_tracker" };
+  }
+
+  if (decision.intent === "general_workspace_question" && entry.status === "implemented") {
+    const args = decision.args as { query: string };
+    return { status: "ok", kind: "general_workspace_question", query: args.query };
   }
 
   return {

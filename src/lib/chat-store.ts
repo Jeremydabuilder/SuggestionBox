@@ -78,10 +78,72 @@ export const sinceLastMeetingReportStructuredSchema = z.object({
 });
 export type SinceLastMeetingReportStructured = z.infer<typeof sinceLastMeetingReportStructuredSchema>;
 
+const suggestionRefSchema = z.string().regex(/^S\d{3}$/);
+
+/** Stage 7: "Search the inbox" — a capped, deterministic keyword/filter result, never a Groq call. */
+export const inboxSearchResultsStructuredSchema = z.object({
+  type: z.literal("inbox_search_results"),
+  totalMatches: z.number().int().min(0),
+  hits: z
+    .array(z.object({ ref: suggestionRefSchema, title: z.string().max(300), status: z.string(), category: z.string() }))
+    .max(15),
+});
+export type InboxSearchResultsStructured = z.infer<typeof inboxSearchResultsStructuredSchema>;
+
+/**
+ * Stage 7: "Ask the Inbox". `citations` is always the post-validation
+ * allowlisted subset (see chat-inbox-answer.ts) — a ref the model cited
+ * that wasn't in its own evidence never reaches this schema, because the
+ * whole answer is discarded before a structured value is ever built.
+ */
+export const inboxAnswerStructuredSchema = z.object({
+  type: z.literal("inbox_answer"),
+  answer: z.string().max(1000),
+  citations: z.array(z.object({ ref: suggestionRefSchema, title: z.string().max(300) })).max(8),
+});
+export type InboxAnswerStructured = z.infer<typeof inboxAnswerStructuredSchema>;
+
+/** Stage 7: Trend Radar — deterministic category-frequency comparison, never a Groq call. */
+export const trendRadarStructuredSchema = z.object({
+  type: z.literal("trend_radar_report"),
+  trends: z
+    .array(
+      z.object({
+        category: z.string(),
+        recentCount: z.number().int().min(0),
+        priorCount: z.number().int().min(0),
+        isRising: z.boolean(),
+      }),
+    )
+    .max(10),
+});
+export type TrendRadarStructured = z.infer<typeof trendRadarStructuredSchema>;
+
+/** Stage 7: Promise Tracker — deterministic decision-without-follow-up-action gaps, never a Groq call. */
+export const promiseTrackerStructuredSchema = z.object({
+  type: z.literal("promise_tracker_report"),
+  gaps: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        decisionText: z.string().max(2000),
+        meetingHeadline: z.string().nullable(),
+        daysSinceDecision: z.number().int().min(0),
+      }),
+    )
+    .max(20),
+  meetingScopedDecisionCount: z.number().int().min(0),
+});
+export type PromiseTrackerStructured = z.infer<typeof promiseTrackerStructuredSchema>;
+
 export const assistantStructuredSchema = z.discriminatedUnion("type", [
   memoryProposalStructuredSchema,
   statusStructuredSchema,
   sinceLastMeetingReportStructuredSchema,
+  inboxSearchResultsStructuredSchema,
+  inboxAnswerStructuredSchema,
+  trendRadarStructuredSchema,
+  promiseTrackerStructuredSchema,
 ]);
 export type AssistantStructured = z.infer<typeof assistantStructuredSchema>;
 

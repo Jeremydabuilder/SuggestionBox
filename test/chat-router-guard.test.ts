@@ -37,7 +37,7 @@ describe("registry safety boundary", () => {
     assert.deepEqual(new Set(Object.keys(CHAT_TOOL_REGISTRY)), new Set(CHAT_INTENTS));
   });
 
-  test("as of Stage 6, 'help', 'clarification_needed', 'memory_manager', 'meeting_prep', 'meeting_history', 'list_decisions', 'list_actions', and 'since_last_meeting' are marked implemented", () => {
+  test("as of Stage 7, 12 of the 17 intents are marked implemented — suggestion_details, related_suggestions, proposal_builder, draft_communication, and meeting_cleanup remain planned/not_connected", () => {
     const implemented = Object.values(CHAT_TOOL_REGISTRY).filter((entry) => entry.status === "implemented").map((e) => e.intent);
     assert.deepEqual(
       new Set(implemented),
@@ -50,6 +50,10 @@ describe("registry safety boundary", () => {
         "list_decisions",
         "list_actions",
         "since_last_meeting",
+        "search_inbox",
+        "trend_radar",
+        "promise_tracker",
+        "general_workspace_question",
       ]),
     );
   });
@@ -106,6 +110,33 @@ describe("executeRoute — honest results, never a fake record", () => {
     const r2 = executeRoute(withMeeting);
     assert.equal(r2.status, "ok");
     if (r2.status === "ok" && r2.kind === "since_last_meeting") assert.equal(r2.meetingId, meetingId);
+  });
+
+  test("search_inbox, trend_radar, promise_tracker, and general_workspace_question return honest routing signals, never fabricated results — the real reads happen in their own server actions, not executeRoute", () => {
+    const search: RouteDecision = { intent: "search_inbox", args: parseIntentArgs("search_inbox", { query: "lunch", category: "food" }), confidence: "high", needsClarification: false, source: "deterministic" };
+    const searchResult = executeRoute(search);
+    assert.equal(searchResult.status, "ok");
+    if (searchResult.status === "ok" && searchResult.kind === "search_inbox") {
+      assert.equal(searchResult.query, "lunch");
+      assert.equal(searchResult.category, "food");
+    }
+
+    const trend: RouteDecision = { intent: "trend_radar", args: parseIntentArgs("trend_radar", {}), confidence: "high", needsClarification: false, source: "deterministic" };
+    const trendResult = executeRoute(trend);
+    assert.equal(trendResult.status, "ok");
+    if (trendResult.status === "ok") assert.equal(trendResult.kind, "trend_radar");
+
+    const promise: RouteDecision = { intent: "promise_tracker", args: parseIntentArgs("promise_tracker", {}), confidence: "high", needsClarification: false, source: "deterministic" };
+    const promiseResult = executeRoute(promise);
+    assert.equal(promiseResult.status, "ok");
+    if (promiseResult.status === "ok") assert.equal(promiseResult.kind, "promise_tracker");
+
+    const question: RouteDecision = { intent: "general_workspace_question", args: parseIntentArgs("general_workspace_question", { query: "what's popular?" }), confidence: "medium", needsClarification: false, source: "ai" };
+    const questionResult = executeRoute(question);
+    assert.equal(questionResult.status, "ok");
+    if (questionResult.status === "ok" && questionResult.kind === "general_workspace_question") {
+      assert.equal(questionResult.query, "what's popular?");
+    }
   });
 
   test("meeting_prep, meeting_history, list_decisions, and list_actions each return the panel-open kind matching their intent name, not a fabricated record", () => {

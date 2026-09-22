@@ -71,9 +71,13 @@ describe("since_last_meeting — the structured report card is built from a real
 
   test("the structured card is only ever set from the report result, never a client- or classifier-supplied value", () => {
     const body = functionBody("sendChatMessage");
-    // Every assignment to `structured` must originate from `reportResult.data.report`
-    // (the trusted server read) — never from `decision.args` or raw message text.
-    const assignments = [...body.matchAll(/structured\s*=\s*([^;]+);/g)].map((m) => m[1]!.trim());
+    const branchStart = body.indexOf('execution.kind === "since_last_meeting"');
+    const branchEnd = body.indexOf('} else if (execution.status === "ok" && execution.kind === "search_inbox")', branchStart);
+    const branch = body.slice(branchStart, branchEnd === -1 ? undefined : branchEnd);
+    // Every assignment to `structured` in this branch must originate from
+    // `reportResult.data.report` (the trusted server read) — never from
+    // `decision.args` or raw message text.
+    const assignments = [...branch.matchAll(/structured\s*=\s*([^;]+);/g)].map((m) => m[1]!.trim());
     for (const assignment of assignments) {
       assert.match(assignment, /reportResult\.data\.report/, `unexpected structured assignment: ${assignment}`);
     }
@@ -84,5 +88,23 @@ describe("since_last_meeting — the structured report card is built from a real
     const body = functionBody("sendChatMessage");
     assert.match(body, /reportResult\.ok/);
     assert.match(body, /reportResult\.error/);
+  });
+});
+
+describe("Stage 7 — search_inbox, trend_radar, and promise_tracker are deterministic; general_workspace_question is the only branch that calls Groq", () => {
+  test("search_inbox, trend_radar, and promise_tracker each delegate to their own read-only server action", () => {
+    assert.match(source, /searchInbox\(execution\.query/);
+    assert.match(source, /getTrendRadar\(\)/);
+    assert.match(source, /getPromiseTracker\(\)/);
+  });
+
+  test("general_workspace_question is the only branch calling answerWorkspaceQuestion, and the structured card comes straight from its result", () => {
+    const occurrences = (source.match(/answerWorkspaceQuestion\(/g) ?? []).length;
+    assert.equal(occurrences, 1);
+    assert.match(source, /structured = answer\.structured;/);
+  });
+
+  test("this file itself never calls Groq directly — the one model call for Ask the Inbox lives inside chat-inbox-answer.ts", () => {
+    assert.doesNotMatch(stripComments(source), /groq/i);
   });
 });

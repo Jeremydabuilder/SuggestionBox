@@ -5,6 +5,10 @@ import { sendUserMessage, listMessages } from "./chat-actions";
 import { routeChatMessage } from "./chat-router";
 import { insertAssistantMessage } from "./chat-assistant-internal";
 import { getSinceLastMeetingReport } from "./since-last-meeting-actions";
+import { searchInbox } from "./inbox-search-actions";
+import { getTrendRadar } from "./trend-radar-actions";
+import { getPromiseTracker } from "./promise-tracker-actions";
+import { answerWorkspaceQuestion } from "./chat-inbox-answer";
 import type { ActionResult } from "./actions";
 import type { AssistantStructured, ChatMessage } from "@/lib/chat-store";
 
@@ -80,6 +84,49 @@ export async function sendChatMessage(rawConversationId: unknown, rawContent: un
     } else {
       assistantContent = reportResult.error;
     }
+  } else if (execution.status === "ok" && execution.kind === "search_inbox") {
+    const searchResult = await searchInbox(execution.query, execution.category, execution.status_filter);
+    if (searchResult.ok) {
+      const { hits, totalMatches } = searchResult.data;
+      assistantContent =
+        totalMatches === 0
+          ? "No suggestions matched that search."
+          : `Found ${totalMatches} suggestion${totalMatches === 1 ? "" : "s"}${hits.length < totalMatches ? ` (showing ${hits.length})` : ""}.`;
+      structured = { type: "inbox_search_results", totalMatches, hits };
+    } else {
+      assistantContent = searchResult.error;
+    }
+  } else if (execution.status === "ok" && execution.kind === "trend_radar") {
+    const trendResult = await getTrendRadar();
+    if (trendResult.ok) {
+      const rising = trendResult.data.trends.filter((t) => t.isRising);
+      assistantContent =
+        rising.length === 0
+          ? "No category is trending up right now."
+          : `${rising.length} categor${rising.length === 1 ? "y is" : "ies are"} trending up: ${rising.map((t) => t.category).join(", ")}.`;
+      structured = { type: "trend_radar_report", trends: trendResult.data.trends };
+    } else {
+      assistantContent = trendResult.error;
+    }
+  } else if (execution.status === "ok" && execution.kind === "promise_tracker") {
+    const trackerResult = await getPromiseTracker();
+    if (trackerResult.ok) {
+      const { gaps } = trackerResult.data;
+      assistantContent =
+        gaps.length === 0
+          ? "No decisions are missing a recorded follow-up action."
+          : `${gaps.length} decision${gaps.length === 1 ? "" : "s"} still ${gaps.length === 1 ? "has" : "have"} no recorded follow-up action.`;
+      structured = { type: "promise_tracker_report", gaps, meetingScopedDecisionCount: trackerResult.data.meetingScopedDecisionCount };
+    } else {
+      assistantContent = trackerResult.error;
+    }
+  } else if (execution.status === "ok" && execution.kind === "general_workspace_question") {
+    // The only Stage 7 path that calls Groq — see chat-inbox-answer.ts for
+    // the request-count bound and the citation-allowlist re-validation
+    // every answer goes through before it can carry a structured card.
+    const answer = await answerWorkspaceQuestion(session, execution.query);
+    assistantContent = answer.content;
+    structured = answer.structured;
   } else {
     assistantContent = execution.status === "not_available" ? execution.reason : "I couldn't process that just now.";
   }

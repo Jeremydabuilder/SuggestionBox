@@ -148,6 +148,17 @@ const RULES: Rule[] = [
     match: /^(?:search|find)\s+(.+)/i,
     build: (m) => decision("search_inbox", { query: m[1]!.trim().slice(0, 200) }),
   },
+  // Trend radar
+  {
+    match: /\btrend(s|ing)?\b.*\b(inbox|suggestions?|categor(y|ies))\b|\b(what'?s|what is)\s+trending\b|\btrend radar\b/i,
+    build: () => decision("trend_radar", {}),
+  },
+  // Promise tracker
+  {
+    match:
+      /\b(promise|follow[- ]?up)s?\b.*\b(tracker|track|gaps?|missing)\b|\b(tracker|track|gaps?|missing)\b.*\b(promise|follow[- ]?up)s?\b|\bdecisions?\b.*\bwithout\b.*\bactions?\b|\bwhat needs (a )?follow[- ]?up\b/i,
+    build: () => decision("promise_tracker", {}),
+  },
   // Help
   {
     match: /^help$|^what can you do\??$|\bhow do (i|you) use (this|the workspace)\b/i,

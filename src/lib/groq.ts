@@ -222,6 +222,95 @@ async function askJsonModel(
   }
 }
 
+/** The hard ceiling for a single Ask the Inbox answer: configured model, plus at most one explicit fallback. Never more. */
+export const ANSWER_MAX_REQUESTS = 2;
+
+/**
+ * The same bounded configured-model-plus-one-fallback shape as
+ * generateClassifierCompletion above, kept as its own function (rather
+ * than sharing one implementation) so a change to one call site can never
+ * silently change the other's tested request-count guarantee. Used only
+ * by general_workspace_question ("Ask the Inbox") — a plain-text answer,
+ * not JSON, so no response_format is requested and no JSON parsing
+ * happens here; the caller (chat-answer.ts) is responsible for citation
+ * validation against its own retrieved-evidence allowlist.
+ */
+export async function generateAnswerCompletion(
+  systemPrompt: string,
+  userPrompt: string,
+  options: { maxTokens?: number; timeoutMs?: number } = {},
+): Promise<ClassifierCallOutcome> {
+  const candidates = await candidateModels();
+  const primary = candidates[0];
+  if (!primary) return { ok: false, requestCount: 0, errorCategory: "no_compatible_model" };
+
+  let requestCount = 0;
+  try {
+    requestCount += 1;
+    const content = await askTextModel(primary, systemPrompt, userPrompt, options);
+    return { ok: true, content, model: primary, requestCount };
+  } catch (error) {
+    if (!(error instanceof GroqRequestError) || ![400, 404, 422].includes(error.status)) {
+      return { ok: false, requestCount, errorCategory: classifierErrorCategory(error) };
+    }
+
+    const fallback = candidates[1];
+    if (!fallback) return { ok: false, requestCount, errorCategory: "no_compatible_model" };
+
+    try {
+      requestCount += 1;
+      const content = await askTextModel(fallback, systemPrompt, userPrompt, options);
+      return { ok: true, content, model: fallback, requestCount };
+    } catch (fallbackError) {
+      const category =
+        fallbackError instanceof GroqRequestError && [400, 404, 422].includes(fallbackError.status)
+          ? "no_compatible_model"
+          : classifierErrorCategory(fallbackError);
+      return { ok: false, requestCount, errorCategory: category };
+    }
+  }
+}
+
+async function askTextModel(
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  options: { maxTokens?: number; timeoutMs?: number },
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 8_000);
+  try {
+    const response = await fetch(GROQ_ENDPOINT, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${serverEnv.groqApiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_completion_tokens: options.maxTokens ?? 400,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new GroqRequestError(`Groq returned HTTP ${response.status}.`, response.status);
+    }
+
+    const payload = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) throw new Error("The model returned an empty response.");
+    return content;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function meetingAgentError(error: unknown): string {
   if (error instanceof GroqRequestError) {
     if (error.status === 401 || error.status === 403) return "The private Groq key is missing or invalid. Update GROQ_API_KEY in Render.";

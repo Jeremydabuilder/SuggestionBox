@@ -10,7 +10,7 @@ import {
   listMessages,
 } from "@/app/president/chat-actions";
 import { sendChatMessage } from "@/app/president/chat-orchestration-actions";
-import type { ChatConversation, ChatMessage, SinceLastMeetingReportStructured } from "@/lib/chat-store";
+import type { AssistantStructured, ChatConversation, ChatMessage } from "@/lib/chat-store";
 import type { Suggestion } from "@/lib/types";
 import MemoryManagerPanel from "./MemoryManagerPanel";
 import MeetingAgent from "./MeetingAgent";
@@ -26,6 +26,8 @@ const STARTER_PROMPTS = [
   "What needs attention?",
   "Show open action items",
   "Search student suggestions",
+  "What's trending?",
+  "Check for missing follow-ups",
   "Build a proposal",
   "Draft an assembly update",
   "Review meeting history",
@@ -430,13 +432,11 @@ export default function AIChat({
                   <li key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div
                       className={`group rounded-[14px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${
-                        message.structured?.type === "since_last_meeting_report" ? "max-w-[95%]" : "max-w-[85%]"
+                        message.structured ? "max-w-[95%]" : "max-w-[85%]"
                       } ${message.role === "user" ? "bg-navy text-white" : "border border-rule bg-paper text-navy"}`}
                     >
                       <p className="whitespace-pre-wrap">{message.content}</p>
-                      {message.structured?.type === "since_last_meeting_report" && (
-                        <SinceLastMeetingCard report={message.structured} />
-                      )}
+                      {message.structured && <StructuredCard structured={message.structured} />}
                       {message.role === "assistant" && (
                         <button
                           type="button"
@@ -542,6 +542,99 @@ export default function AIChat({
   );
 }
 
+/**
+ * Dispatches to the right inline card by `structured.type`. Every branch
+ * here is purely presentational — the data already arrived validated
+ * against assistantStructuredSchema (chat-store.ts) before it reached the
+ * browser, so this never re-fetches, re-validates, or trusts anything
+ * beyond what that schema already guarantees.
+ */
+function StructuredCard({ structured }: { structured: AssistantStructured }) {
+  switch (structured.type) {
+    case "since_last_meeting_report":
+      return <SinceLastMeetingCard report={structured} />;
+    case "inbox_search_results":
+      return <InboxSearchCard result={structured} />;
+    case "inbox_answer":
+      return <InboxAnswerCard answer={structured} />;
+    case "trend_radar_report":
+      return <TrendRadarCard report={structured} />;
+    case "promise_tracker_report":
+      return <PromiseTrackerCard report={structured} />;
+    default:
+      return null;
+  }
+}
+
+function InboxSearchCard({ result }: { result: Extract<AssistantStructured, { type: "inbox_search_results" }> }) {
+  if (result.hits.length === 0) return null;
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      <ul className="space-y-1.5 text-[12.5px] text-navy">
+        {result.hits.map((hit) => (
+          <li key={hit.ref} className="flex items-center justify-between gap-2">
+            <span className="truncate">
+              <span className="mr-1.5 text-[10.5px] font-bold text-navy-soft">{hit.ref}</span>
+              {hit.title}
+            </span>
+            <span className="shrink-0 text-[11px] text-navy-soft">{STATUS_LABELS[hit.status] ?? hit.status}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function InboxAnswerCard({ answer }: { answer: Extract<AssistantStructured, { type: "inbox_answer" }> }) {
+  if (answer.citations.length === 0) return null;
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-navy-soft">Sources</p>
+      <ul className="space-y-1 text-[12.5px] text-navy">
+        {answer.citations.map((c) => (
+          <li key={c.ref} className="truncate">
+            <span className="mr-1.5 text-[10.5px] font-bold text-navy-soft">{c.ref}</span>
+            {c.title}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function TrendRadarCard({ report }: { report: Extract<AssistantStructured, { type: "trend_radar_report" }> }) {
+  const rising = report.trends.filter((t) => t.isRising);
+  if (rising.length === 0) return null;
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      <ul className="space-y-1.5 text-[12.5px] text-navy">
+        {rising.map((t) => (
+          <li key={t.category} className="flex items-center justify-between gap-2">
+            <span className="truncate capitalize">{t.category.replace(/_/g, " ")}</span>
+            <span className="shrink-0 text-[11px] text-navy-soft">{t.priorCount} → {t.recentCount}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function PromiseTrackerCard({ report }: { report: Extract<AssistantStructured, { type: "promise_tracker_report" }> }) {
+  if (report.gaps.length === 0) return null;
+  return (
+    <div className="mt-2.5 rounded-[10px] border border-rule bg-white/70 p-3">
+      <ul className="space-y-1.5 text-[12.5px] text-navy">
+        {report.gaps.map((gap) => (
+          <li key={gap.id} className="flex items-center justify-between gap-2">
+            <span className="truncate">{gap.decisionText}</span>
+            <span className="shrink-0 text-[11px] text-navy-soft">{gap.daysSinceDecision}d, no action</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 const STATUS_LABELS: Record<string, string> = {
   new: "New",
   reviewing: "Reviewing",
@@ -560,7 +653,7 @@ const STATUS_LABELS: Record<string, string> = {
  * server (chat-store.ts's sinceLastMeetingReportStructuredSchema), so this
  * component does no fetching and no re-validation of its own.
  */
-function SinceLastMeetingCard({ report }: { report: SinceLastMeetingReportStructured }) {
+function SinceLastMeetingCard({ report }: { report: Extract<AssistantStructured, { type: "since_last_meeting_report" }> }) {
   return (
     <div className="mt-2.5 space-y-3 rounded-[10px] border border-rule bg-white/70 p-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
